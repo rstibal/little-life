@@ -6,6 +6,8 @@ own needs, form a relationship, and may end up with children.
 There is no player control beyond speed — it's something you watch, not something
 you play.
 
+![One Sim asleep, the other playing guitar, in the pastel-toy flat](screenshot.png)
+
 ## Running it
 
 Open [`index.html`](index.html) in a browser. That's it — no build step, no
