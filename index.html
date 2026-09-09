@@ -1,0 +1,1398 @@
+﻿<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Little Life</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night:#161d2b; --panel:#1f2839; --panel-2:#27324a; --line:#33405c;
+    --ink:#eae6dc; --ink-dim:#8b97b0; --ink-faint:#6c7891;
+    --lamp:#f2c063; --good:#7cc4a4; --mid:#e3b45c; --low:#db6f61;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--night); color:var(--ink);
+    font-family:"Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1060px; margin:0 auto; padding:16px 14px 34px; }
+
+  .layout { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(288px,1fr); gap:20px; align-items:start; }
+  @media (max-width:820px) { .layout { grid-template-columns:1fr; gap:0; } }
+
+  .topbar { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
+  .title { font-size:22px; font-weight:600; letter-spacing:-.02em; }
+  .clock { text-align:right; line-height:1.2; }
+  .time { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .day { font-size:12px; color:var(--ink-dim); }
+
+  .stage { background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  canvas { display:block; width:100%; }
+
+  .controls { display:flex; gap:6px; margin:12px 0 10px; }
+  .controls button {
+    flex:1; padding:8px 0; background:var(--panel); color:var(--ink-dim);
+    border:1px solid var(--line); border-radius:9px;
+    font-family:inherit; font-size:13px; cursor:pointer;
+  }
+  .controls button:hover { color:var(--ink); }
+  .controls button:focus-visible { outline:2px solid var(--lamp); outline-offset:2px; }
+  .controls button[aria-pressed="true"] { background:var(--lamp); border-color:var(--lamp); color:#2a2010; }
+  .walls { margin-bottom:18px; }
+  .walls button { width:100%; }
+
+  h2 { font-size:12px; font-weight:400; color:var(--ink-dim); margin:0 0 8px; }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:11px 12px; margin-bottom:10px; }
+  .card-head { display:flex; align-items:center; gap:8px; margin-bottom:3px; }
+  .swatch { width:9px; height:9px; border-radius:50%; flex:none; }
+  .nm { font-size:16px; font-weight:600; background:none; border:none; border-bottom:1px dashed transparent;
+        color:var(--ink); font-family:inherit; padding:0; width:6ch; }
+  .nm:hover, .nm:focus { border-bottom-color:var(--line); outline:none; }
+  .card-head .mood { font-size:15px; }
+  .moodword { font-size:11.5px; color:var(--ink-dim); }
+  .traits { margin-left:auto; font-size:11.5px; color:var(--ink-faint); }
+  .act { font-size:12.5px; color:var(--lamp); margin-bottom:9px; }
+  .needs { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; }
+  .need-row { display:flex; align-items:center; gap:6px; font-size:11.5px; }
+  .need-row .lbl { width:46px; color:var(--ink-dim); flex:none; }
+  .bar { flex:1; height:4px; border-radius:3px; background:var(--panel-2); overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:3px; transition:width .3s linear, background .5s; }
+
+  .rel { display:flex; align-items:center; gap:9px; font-size:12.5px; margin:2px 0 20px; padding:0 2px; }
+  .rel .lbl { color:var(--ink-dim); flex:none; }
+  .rel .val { color:var(--ink-faint); font-variant-numeric:tabular-nums; flex:none; width:9ch; text-align:right; }
+
+  .log { list-style:none; margin:0; padding:0; font-size:12.5px; }
+  .log li { display:flex; gap:9px; padding:5px 0; border-bottom:1px solid rgba(51,64,92,.5); color:var(--ink-dim); }
+  .log li:first-child { color:var(--ink); }
+  .log .t { font-variant-numeric:tabular-nums; color:var(--ink-faint); flex:none; width:6.4ch; }
+</style>
+
+<div class="wrap">
+  <div class="topbar">
+    <span class="title">Little Life</span>
+    <div class="clock">
+      <div class="time" id="time">7:00am</div>
+      <div class="day" id="day">Day 1</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="stage"><canvas id="c"></canvas></div>
+
+      <div class="controls" role="group" aria-label="Speed">
+        <button data-s="0">Pause</button>
+        <button data-s="1" aria-pressed="true">1×</button>
+        <button data-s="4">4×</button>
+        <button data-s="12">12×</button>
+      </div>
+
+      <div class="controls" style="margin-bottom:18px">
+        <button id="wallBtn">Walls: cutaway</button>
+        <button id="resetBtn">Start over</button>
+      </div>
+    </div>
+
+    <div>
+      <div id="cards"></div>
+
+      <div class="rel">
+        <span class="lbl">Together</span>
+        <span class="bar"><i id="relBar"></i></span>
+        <span class="val" id="relVal">Strangers</span>
+      </div>
+
+      <h2>What happened</h2>
+      <ul class="log" id="log"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLS = 10, ROWS = 10;
+
+const NEEDS = [
+  { k:'energy',  label:'Energy',  decay:5.2, weight:1.15 },
+  { k:'hunger',  label:'Hunger',  decay:6.4, weight:1.20 },
+  { k:'bladder', label:'Bladder', decay:7.8, weight:1.40 },
+  { k:'hygiene', label:'Clean',   decay:4.0, weight:0.85 },
+  { k:'fun',     label:'Fun',     decay:5.6, weight:0.80 },
+  { k:'social',  label:'Social',  decay:3.6, weight:0.70 },
+];
+const NEED = k => NEEDS.find(n => n.k === k);
+
+/* Traits shift decay rates, need weights, and a few behaviour knobs.
+   Two per Sim, drawn at start, never opposites. */
+const TRAITS = {
+  neat:      { name:'neat',       weight:{hygiene:1.7}, decay:{hygiene:1.2} },
+  slob:      { name:'slob',       weight:{hygiene:0.45} },
+  glutton:   { name:'glutton',    decay:{hunger:1.4} },
+  nightOwl:  { name:'night owl',  shift: 2.5 },
+  earlyBird: { name:'early bird', shift:-2.0 },
+  sociable:  { name:'sociable',   weight:{social:1.7}, decay:{social:1.3}, chat:1.5 },
+  loner:     { name:'loner',      weight:{social:0.5}, chat:0.35 },
+  lazy:      { name:'lazy',       decay:{energy:1.3}, idle:2.2 },
+  playful:   { name:'playful',    weight:{fun:1.5}, decay:{fun:1.2} },
+  bookish:   { name:'bookish',    weight:{fun:0.75}, chat:0.75 },
+};
+
+const OBJECTS = [
+  // bedroom — beds run away from the head wall, nightstand between them
+  { id:'bed0',   x:1, y:0, w:1, h:2, hgt:0.20, color:'#9891e0', sit:true, cap:1 },
+  { id:'bed1',   x:3, y:0, w:1, h:2, hgt:0.20, color:'#7fc0e0', sit:true, cap:1 },
+  { id:'stand',  x:2, y:0, w:1, h:1, hgt:0.42, color:'#7a5a3e', cap:9 },
+  { id:'desk',   x:0, y:3, w:1, h:1, hgt:0.46, color:'#8a6a4a', cap:1 },
+  { id:'kidbed0',x:0, y:0, w:1, h:2, hgt:0.20, color:'#d78b52', sit:true, cap:1 },
+  { id:'kidbed1',x:3, y:3, w:1, h:1, hgt:0.34, color:'#88a0c8', sit:true, cap:1 },
+  { id:'crib',   x:4, y:0, w:1, h:1, hgt:0.50, color:'#c8b08a', cap:1 },
+
+  // bathroom — all plumbing along one wall
+  { id:'shower', x:5, y:0, w:1, h:1, hgt:1.00, color:'#a6e4ea', cap:1 },
+  { id:'sink',   x:6, y:0, w:1, h:1, hgt:0.55, color:'#cdeadf', cap:1 },
+  { id:'toilet', x:7, y:0, w:1, h:1, hgt:0.40, color:'#fdf3e2', sit:true, cap:1 },
+
+  // kitchen — a run of units down the west wall, table alongside
+  { id:'fridge', x:0, y:4, w:1, h:1, hgt:1.25, color:'#d7d7cb', cap:1 },
+  { id:'stove',  x:0, y:5, w:1, h:1, hgt:0.55, color:'#8b8b84', cap:1 },
+  { id:'counter',x:0, y:6, w:1, h:1, hgt:0.52, color:'#b9b3a4', cap:9 },
+  { id:'table',  x:2, y:5, w:2, h:1, hgt:0.46, color:'#a8763e', cap:2 },
+
+  // hobbies along the divider wall
+  { id:'guitar', x:4, y:4, w:1, h:1, hgt:0.78, color:'#c98a3e', cap:1 },
+  { id:'easel',  x:5, y:4, w:1, h:1, hgt:0.95, color:'#cbb089', cap:1 },
+  { id:'shelf',  x:9, y:4, w:1, h:1, hgt:1.30, color:'#8a5a3c', cap:1 },
+  { id:'arcade', x:0, y:8, w:1, h:1, hgt:1.10, color:'#4a6fa5', cap:1 },
+  { id:'mat',    x:3, y:8, w:1, h:1, hgt:0.04, color:'#7fb5a8', cap:1 },
+
+  // living — sofa and TV face each other across the rug
+  { id:'sofa',   x:6, y:6, w:2, h:1, hgt:0.16, color:'#ff9c74', sit:true, cap:2 },
+  { id:'tv',     x:6, y:4, w:1, h:1, hgt:0.45, color:'#5c6486', cap:9 },
+  { id:'lamp',   x:9, y:6, w:1, h:1, hgt:1.05, color:'#e0b457', cap:9 },
+  { id:'plant',  x:9, y:9, w:1, h:1, hgt:0.72, color:'#4e8f5a', cap:9 },
+];
+const byId = id => OBJECTS.find(o => o.id === id);
+
+const ACTS = {
+  sleep:  { obj:s=>s.bedId,   need:'energy',  rate:0.30, cap:99, verb:'Sleeping',           icon:'💤', log:'went to bed' },
+  tend:   { obj:()=>'crib',   verb:'Looking after the baby', icon:'🍼', log:'went to check on the baby',
+            adultOnly:true, tend:true },
+  eat:    { obj:()=>'table',  need:'hunger',  rate:3.40, cap:98, verb:'Eating',             icon:'🍽️', log:'sat down to eat' },
+  cook:   { obj:()=>'stove',  fixed:22,                          verb:'Cooking',            icon:'🍳', log:'started cooking', then:'eat', adultOnly:true },
+  snack:  { obj:()=>'fridge', need:'hunger',  rate:4.50, cap:52, verb:'Raiding the fridge', icon:'🥪', log:'grabbed a snack' },
+  toilet: { obj:()=>'toilet', need:'bladder', rate:11.0, cap:99, verb:'In the bathroom',    icon:'🚽', log:'went to the bathroom' },
+  shower: { obj:()=>'shower', need:'hygiene', rate:5.00, cap:98, verb:'Taking a shower',    icon:'🚿', log:'got in the shower' },
+  wash:   { obj:()=>'sink',   need:'hygiene', rate:7.00, cap:55, verb:'Washing up',         icon:'🧼', log:'washed up' },
+  tv:     { obj:()=>'sofa',   need:'fun',     rate:2.60, cap:88, verb:'Watching TV',        icon:'📺', log:'put the TV on', variety:true, likes:'lazy' },
+  read:   { obj:()=>'shelf',  need:'fun',     rate:2.20, cap:88, verb:'Reading',            icon:'📖', log:'picked out a book', variety:true, likes:'bookish' },
+  paint:  { obj:()=>'easel',  need:'fun',     rate:2.40, cap:90, verb:'Painting',           icon:'🎨', log:'started painting', variety:true },
+  guitar: { obj:()=>'guitar', need:'fun',     rate:3.00, cap:90, verb:'Playing guitar',     icon:'🎸', log:'picked up the guitar', variety:true, likes:'playful' },
+  arcade: { obj:()=>'arcade', need:'fun',     rate:3.60, cap:94, verb:'Playing the arcade', icon:'🕹️', log:'fired up the arcade cabinet', variety:true, likes:'playful' },
+  stretch:{ obj:()=>'mat',    need:'fun',     rate:1.90, cap:76, verb:'Stretching',         icon:'🧘', log:'unrolled the mat', variety:true,
+            costs:{ hygiene:0.55 }, gains:{ energy:0.35 } },
+  online: { obj:()=>'desk',   need:'social',  rate:2.20, cap:80, verb:'Messaging friends',  icon:'💬', log:'sat down at the desk', variety:true, adultOnly:true },
+  relax:  { obj:()=>'sofa',   need:'fun',     rate:0.70, cap:58, verb:'Sitting around',     icon:'🌿', log:'flopped on the sofa', idle:true, variety:true },
+  chat:   { social:true,                                         verb:'Chatting',           icon:'💭' },
+};
+
+/* Walls. 'N:x:y' sits on the north edge of tile (x,y), 'W:x:y' on its west edge.
+   Depth here is gx+gy, so a wall only hides things when its own coordinate is
+   above zero — which is exactly the set cutaway mode knocks down. */
+const walls = new Set();
+for (let x = 0; x < COLS; x++) walls.add(`N:${x}:0`);
+for (let y = 0; y < ROWS; y++) walls.add(`W:0:${y}`);
+for (let x = 0; x < COLS; x++) if (x !== 2 && x !== 7) walls.add(`N:${x}:4`);
+for (let y = 0; y < 4; y++) if (y !== 2) walls.add(`W:5:${y}`);
+
+let wallMode = 'cutaway';
+
+const blocked = Array.from({ length: COLS }, () => Array(ROWS).fill(false));
+for (const o of OBJECTS)
+  for (let i = 0; i < o.w; i++)
+    for (let j = 0; j < o.h; j++) blocked[o.x + i][o.y + j] = true;
+
+const inBounds = (x,y) => x>=0 && y>=0 && x<COLS && y<ROWS;
+const free = (x,y) => inBounds(x,y) && !blocked[x][y];
+
+function canCross(fx, fy, tx, ty) {
+  if (ty === fy + 1) return !walls.has(`N:${tx}:${ty}`);
+  if (ty === fy - 1) return !walls.has(`N:${fx}:${fy}`);
+  if (tx === fx + 1) return !walls.has(`W:${tx}:${ty}`);
+  if (tx === fx - 1) return !walls.has(`W:${fx}:${fy}`);
+  return true;
+}
+
+function approachTiles(o) {
+  const out = [], seen = new Set();
+  for (let i = 0; i < o.w; i++)
+    for (let j = 0; j < o.h; j++) {
+      const ox = o.x + i, oy = o.y + j;
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const x = ox + dx, y = oy + dy, k = x + ',' + y;
+        // must be walkable AND not on the far side of a wall from the object
+        if (!free(x, y) || seen.has(k) || !canCross(x, y, ox, oy)) continue;
+        seen.add(k); out.push([x, y]);
+      }
+    }
+  return out;
+}
+
+function neighbourTiles(tx, ty) {
+  const out = [];
+  for (const [dx,dy] of [[0,0],[1,0],[-1,0],[0,1],[0,-1]]) {
+    const x = Math.round(tx)+dx, y = Math.round(ty)+dy;
+    if (free(x,y)) out.push([x,y]);
+  }
+  return out;
+}
+
+function findPath(sx, sy, goals) {
+  sx = Math.round(sx); sy = Math.round(sy);
+  const key = (x,y) => x*ROWS + y;
+  const goalSet = new Set(goals.map(g => key(g[0], g[1])));
+  if (!goalSet.size) return null;
+  if (goalSet.has(key(sx,sy))) return [];
+  const prev = new Map([[key(sx,sy), null]]);
+  const q = [[sx,sy]];
+  while (q.length) {
+    const [x,y] = q.shift();
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x+dx, ny = y+dy, k = key(nx,ny);
+      if (!free(nx,ny) || prev.has(k) || !canCross(x,y,nx,ny)) continue;
+      prev.set(k, [x,y]);
+      if (goalSet.has(k)) {
+        const path = []; let cur = [nx,ny];
+        while (cur) { path.push(cur); cur = prev.get(key(cur[0],cur[1])); }
+        return path.reverse().slice(1);
+      }
+      q.push([nx,ny]);
+    }
+  }
+  return null;
+}
+
+/* ---------- sims ---------- */
+
+const MALE_NAMES = ['Arlo','Bo','Cass','Dex','Emmet','Finn','Gus','Hugo','Ira','Jonah',
+                    'Kit','Levi','Milo','Nash','Otis','Rafe','Silas','Theo','Vance','Wyatt'];
+const FEMALE_NAMES = ['Ada','Bea','Cleo','Dot','Elsie','Fern','Greta','Hazel','Iris','Juno',
+                      'Kira','Lark','Maeve','Nell','Opal','Pearl','Romy','Sage','Thea','Wren'];
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const randomName = g => pick(g === 'm' ? MALE_NAMES : FEMALE_NAMES);
+const BABY_NEEDS = ['hunger','energy','hygiene','social'];
+
+function makeSim(i, name, gender, traitKeys, colors, opts = {}) {
+  const needs = {};
+  for (const n of NEEDS) needs[n.k] = 45 + Math.random()*30;
+  traitKeys = (traitKeys || []).filter(k => TRAITS[k]);
+  if (!traitKeys.length) traitKeys = drawTraits();
+  const traits = traitKeys.map(k => TRAITS[k]);
+  const decayMul = {}, weightMul = {};
+  for (const n of NEEDS) { decayMul[n.k] = 1; weightMul[n.k] = 1; }
+  let shift = 0, chatMul = 1, idleMul = 1;
+  for (const t of traits) {
+    for (const k in (t.decay || {})) decayMul[k] *= t.decay[k];
+    for (const k in (t.weight || {})) weightMul[k] *= t.weight[k];
+    shift += t.shift || 0;
+    chatMul *= t.chat || 1;
+    idleMul *= t.idle || 1;
+  }
+  const stage = opts.stage || 'adult';
+  return { i, name, gender, needs, traits, traitKeys, decayMul, weightMul, shift, chatMul, idleMul,
+           colors, tx: opts.tx ?? (3 + i*2), ty: opts.ty ?? 6, path: [], act: null, actKey: null,
+           timer: 0, bob: 0, held: null, emotion: null,
+           recent: {}, dirx: 1, diry: 0, chatTarget: null,
+           stage, mobile: stage !== 'baby', ageDays: opts.ageDays || 0,
+           bedId: opts.bedId || ('bed' + i),
+           scale: stage === 'child' ? 0.74 : 1,
+           showNeeds: stage === 'baby' ? BABY_NEEDS : NEEDS.map(n => n.k) };
+}
+
+const OPPOSITE = { neat:'slob', slob:'neat', sociable:'loner', loner:'sociable',
+                   nightOwl:'earlyBird', earlyBird:'nightOwl' };
+const pool = Object.keys(TRAITS);
+function drawTraits() {
+  const a = pool[Math.floor(Math.random()*pool.length)];
+  let b = a;
+  while (b === a || OPPOSITE[a] === b) b = pool[Math.floor(Math.random()*pool.length)];
+  return [a, b];
+}
+
+const SHIRTS = ['#e0a35c','#7fb5a8','#c4645a','#6c8bd0','#c9a3d6','#8fbf6a'];
+const SKINS  = ['#e8b892','#c98f68','#a9714c','#f0c8a8','#8d5a3b'];
+const HAIRS  = ['#4a3a30','#241c18','#6b4423','#8d6a4a','#2b2b33','#a3743c'];
+function paletteFor(gender, i) {
+  return {
+    shirt: SHIRTS[(i + (gender === 'f' ? 1 : 0)) % SHIRTS.length],
+    skin:  pick(SKINS),
+    hair:  pick(HAIRS),
+  };
+}
+
+const SAVE_KEY = 'little-life-save';
+const AWAY_MIN_PER_SEC = 0.4;      // roughly one real hour per in-world day
+const MAX_AWAY = 1440 * 7;         // never fast-forward more than a week
+let quiet = false;                 // suppresses the log during catch-up
+
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d && d.v === 4 && Array.isArray(d.people) && d.people.length >= 2 ? d : null;
+  } catch (e) { return null; }
+}
+
+const saved = loadSave();
+
+function restorePerson(d, i) {
+  const g = d.gender || (i ? 'f' : 'm');
+  const s = makeSim(i, d.name || randomName(g), g, d.traits, paletteFor(g, i),
+                    { stage:d.stage, bedId:d.bedId, ageDays:d.ageDays, tx:d.tx, ty:d.ty });
+  for (const n of NEEDS)
+    if (typeof d.needs?.[n.k] === 'number') s.needs[n.k] = d.needs[n.k];
+  s.emotion = d.emotion || null;
+  return s;
+}
+
+function newHousehold() {
+  return [
+    makeSim(0, randomName('m'), 'm', drawTraits(), paletteFor('m', 0), { bedId:'bed0' }),
+    makeSim(1, randomName('f'), 'f', drawTraits(), paletteFor('f', 1), { bedId:'bed1' }),
+  ];
+}
+
+const people = saved ? saved.people.map(restorePerson) : newHousehold();
+
+let rel = saved ? saved.rel : 12;
+const family = saved ? { partners: !!(saved.family && saved.family.partners),
+                         born: (saved.family && saved.family.born) || 0 }
+                     : { partners: false, born: 0 };
+const chat = { on:false, timer:0, mode:'chat', a:null, b:null };
+
+const adults = () => people.filter(p => p.stage === 'adult');
+const babyIn = () => people.find(p => p.stage === 'baby') || null;
+
+let minutes = saved ? saved.minutes : 7*60;
+let day = saved ? saved.day : 1;
+let speed = 1;
+
+/* ---------- mood ----------
+   Needs decide what's possible; mood nudges how appealing each option feels,
+   and two of these moods make a conversation likely to go badly. */
+const MOODS = {
+  happy:        { label:'happy',        emoji:'😄', sleep:0,  chat:  6, argue:-0.12 },
+  content:      { label:'content',      emoji:'🙂', sleep:0,  chat:  0, argue: 0.00 },
+  tired:        { label:'tired',        emoji:'🥱', sleep:18, chat: -8, argue: 0.10 },
+  grumpy:       { label:'grumpy',       emoji:'😠', sleep:0,  chat: -6, argue: 0.26 },
+  lonely:       { label:'lonely',       emoji:'😔', sleep:0,  chat: 16, argue: 0.04 },
+  annoyed:      { label:'annoyed',      emoji:'😤', sleep:0,  chat:-14, argue: 0.30 },
+  affectionate: { label:'affectionate', emoji:'🥰', sleep:0,  chat: 14, argue:-0.25 },
+};
+
+function moodOf(s) {
+  if (s.emotion && minutes < s.emotion.until && MOODS[s.emotion.key])
+    return MOODS[s.emotion.key];
+  const phys = (s.needs.energy + s.needs.hunger + s.needs.bladder + s.needs.hygiene) / 4;
+  const soc  = (s.needs.fun + s.needs.social) / 2;
+  if (s.needs.energy < 28) return MOODS.tired;
+  if (phys < 38) return MOODS.grumpy;
+  if (s.needs.social < 25) return MOODS.lonely;
+  if (phys > 72 && soc > 68) return MOODS.happy;
+  return MOODS.content;
+}
+
+function setEmotion(s, key, mins) { s.emotion = { key, until: minutes + mins }; }
+const MIN_PER_SEC = 4;
+const logs = [];
+
+/* ---------- brain ---------- */
+
+const hour = () => (minutes/60) % 24;
+function nightFor(s) {
+  const h = hour(), start = 22.5 + s.shift, end = 6.5 + s.shift;
+  return start < 24 ? (h >= start || h < end) : (h >= start - 24 && h < end);
+}
+
+function taken(objId, self) {
+  const o = byId(objId);
+  return people.filter(s => s !== self && s.held === objId).length >= o.cap;
+}
+
+function urgency(key, s) {
+  const a = ACTS[key];
+  const m = moodOf(s);
+  if (a.social) {
+    const other = partnerFor(s);
+    if (!other) return 0;
+    const pair = s.stage === 'adult' && other.stage === 'adult';
+    let u = Math.pow(1 - s.needs.social/100, 2) * 100 * NEED('social').weight * s.weightMul.social;
+    return Math.max(0, u * s.chatMul * (pair ? 0.6 + rel/140 : 0.9) + m.chat);
+  }
+  if (a.tend) {
+    const b = babyIn();
+    if (!b || s.stage !== 'adult') return 0;
+    const worst = Math.min(...BABY_NEEDS.map(k => b.needs[k]));
+    return Math.pow(1 - worst/100, 2) * 100 * 1.9;
+  }
+  if (a.idle) {
+    let u = 5 * s.idleMul;
+    if (minutes - (s.recent[key] ?? -1e9) < 200) u -= 7;
+    return u;
+  }
+  if (key === 'cook' || key === 'eat')
+    return Math.pow(1 - s.needs.hunger/100, 2) * 100 * 1.20 * s.weightMul.hunger * 1.05;
+
+  const v = s.needs[a.need];
+  if (v >= a.cap - 1) return 0;
+  let u = Math.pow(1 - v/100, 2) * 100 * NEED(a.need).weight * s.weightMul[a.need];
+  if (key === 'sleep') u += (nightFor(s) ? 30 : -14) + m.sleep;
+  if (key === 'snack') u *= 0.72;
+  if (key === 'wash') u *= 0.6;
+  if (a.likes && s.traitKeys.includes(a.likes)) u += 15;
+  // doing the same thing again soon after is less appealing than trying something else
+  if (a.variety && minutes - (s.recent[key] ?? -1e9) < 260) u -= 26;
+  return u;
+}
+
+function distanceTo(key, s) {
+  if (ACTS[key].social) {
+    const o = s.chatTarget || partnerFor(s);
+    if (!o) return 99;
+    return Math.abs(o.tx - s.tx) + Math.abs(o.ty - s.ty);
+  }
+  const o = byId(ACTS[key].obj(s));
+  return Math.abs(o.x - s.tx) + Math.abs(o.y - s.ty);
+}
+
+function targetTiles(key, s) {
+  if (ACTS[key].social) {
+    const o = s.chatTarget || partnerFor(s);
+    return o ? neighbourTiles(o.tx, o.ty) : [];
+  }
+  return approachTiles(byId(ACTS[key].obj(s)));
+}
+
+function bestAction(s) {
+  let best = 'relax', bestScore = -Infinity;
+  for (const key of Object.keys(ACTS)) {
+    const a = ACTS[key];
+    if (a.adultOnly && s.stage !== 'adult') continue;
+    if (!a.social && taken(a.obj(s), s)) continue;
+    const score = urgency(key, s) - distanceTo(key, s) * 1.0;
+    if (score > bestScore) { bestScore = score; best = key; }
+  }
+  return { key: best, score: bestScore };
+}
+
+function endAct(s) { s.act = null; s.actKey = null; s.held = null; s.path = []; }
+
+function startAct(key, s, quiet) {
+  const a = ACTS[key];
+  s.actKey = key; s.act = a;
+  s.recent[key] = minutes;
+  s.timer = a.fixed || 0;
+  if (a.social) s.chatTarget = partnerFor(s);
+  s.held = a.social ? null : a.obj(s);
+  s.path = findPath(s.tx, s.ty, targetTiles(key, s)) || [];
+  if (!quiet && a.log) addLog(`${s.name} ${a.log}`);
+}
+
+function endChat(natural) {
+  const wasArgument = chat.mode === 'argue';
+  const pair = [chat.a, chat.b].filter(Boolean);
+  const couple = pair.length === 2 && pair.every(p => p.stage === 'adult');
+  chat.on = false;
+  for (const s of people) if (s.actKey === 'chat') endAct(s);
+  chat.mode = 'chat'; chat.a = chat.b = null;
+  if (!natural) return;
+  if (wasArgument) {
+    for (const s of pair) setEmotion(s, 'annoyed', 110);
+    addLog('The argument fizzled out');
+    return;
+  }
+  if (rel > 52) for (const s of pair) setEmotion(s, 'affectionate', 150);
+  if (couple && !family.partners && rel >= 84) {
+    family.partners = true;
+    addLog(`${pair[0].name} and ${pair[1].name} are a couple now`);
+  } else {
+    addLog('They wrapped up their conversation');
+  }
+}
+
+function think(s) {
+  const { key, score } = bestAction(s);
+  if (!s.actKey) { startAct(key, s); return; }
+  if (key === s.actKey) return;
+  const cur = urgency(s.actKey, s) - distanceTo(s.actKey, s) * 1.0;
+  const margin = s.actKey === 'sleep' ? 62 : chat.on ? 42 : 26;
+  if (score - cur > margin) {
+    if (chat.on && s.actKey === 'chat') endChat(false);
+    startAct(key, s);
+  }
+}
+
+function tryChat(s) {
+  const other = s.chatTarget;
+  if (!other) { endAct(s); return; }
+  const busy = other.actKey && other.actKey !== 'chat' && urgency(other.actKey, other) > 45;
+  if (other.actKey === 'sleep' || busy) {
+    addLog(`${s.name} couldn't get ${other.name}'s attention`);
+    endAct(s);
+    s.needs.social = Math.max(0, s.needs.social - 3);
+    setEmotion(s, 'annoyed', 40);
+    return;
+  }
+  if (other.actKey !== 'chat') { endAct(other); other.actKey = 'chat'; other.act = ACTS.chat; }
+
+  // whether this goes well depends on how both of them feel and where they stand
+  const relPull = rel < 30 ? 0.12 : rel > 70 ? -0.15 : 0;
+  let p = Math.min(0.7, Math.max(0, 0.06 + moodOf(s).argue + moodOf(other).argue + relPull));
+  if (family.partners) p *= 0.5;
+  if (s.stage !== 'adult' || other.stage !== 'adult') p *= 0.4;
+  chat.mode = Math.random() < p ? 'argue' : 'chat';
+  chat.a = s; chat.b = other;
+  chat.on = true;
+  chat.timer = chat.mode === 'argue' ? 14 : 34;
+  addLog(chat.mode === 'argue'
+    ? `${s.name} and ${other.name} started bickering`
+    : `${s.name} and ${other.name} got talking`);
+}
+
+/* ---------- tick ---------- */
+
+function stepSim(s, dtMin) {
+  for (const n of NEEDS)
+    s.needs[n.k] = Math.max(0, s.needs[n.k] - n.decay * s.decayMul[n.k] * dtMin / 60);
+
+  if (s.path.length) {
+    let move = 1.6 * dtMin;
+    while (move > 0 && s.path.length) {
+      const [gx, gy] = s.path[0];
+      const dx = gx - s.tx, dy = gy - s.ty, d = Math.hypot(dx, dy);
+      if (d > 0.001) { s.dirx = dx/d; s.diry = dy/d; }
+      if (d <= move) { s.tx = gx; s.ty = gy; s.path.shift(); move -= d; }
+      else { s.tx += dx/d*move; s.ty += dy/d*move; move = 0; }
+    }
+    s.bob += dtMin * 2.4;
+    think(s);
+    return;
+  }
+
+  const a = s.act;
+  if (!a) { think(s); return; }
+
+  if (a.social) {
+    if (chat.on) return;                       // gains handled in stepChat
+    const other = s.chatTarget;
+    if (!other) { endAct(s); return; }
+    const near = Math.abs(other.tx - s.tx) + Math.abs(other.ty - s.ty) <= 1.6;
+    if (near) tryChat(s);
+    else {
+      s.path = findPath(s.tx, s.ty, neighbourTiles(other.tx, other.ty)) || [];
+      if (!s.path.length) endAct(s);
+    }
+    return;
+  }
+
+  if (a.tend) {
+    const b = babyIn();
+    if (!b) { endAct(s); return; }
+    for (const k of BABY_NEEDS) b.needs[k] = Math.min(100, b.needs[k] + 3.6 * dtMin);
+    s.needs.social = Math.min(100, s.needs.social + 0.9 * dtMin);
+    if (BABY_NEEDS.every(k => b.needs[k] > 88)) endAct(s);
+    return;
+  }
+
+  if (a.fixed) {
+    s.timer -= dtMin;
+    if (s.timer <= 0) { if (a.then) startAct(a.then, s); else endAct(s); }
+    return;
+  }
+
+  s.needs[a.need] = Math.min(100, s.needs[a.need] + a.rate * dtMin);
+  for (const k in (a.costs || {})) s.needs[k] = Math.max(0, s.needs[k] - a.costs[k] * dtMin);
+  for (const k in (a.gains || {})) s.needs[k] = Math.min(100, s.needs[k] + a.gains[k] * dtMin);
+  if (s.needs[a.need] >= a.cap) {
+    if (s.actKey === 'sleep') addLog(`${s.name} woke up`);
+    endAct(s);
+  }
+  think(s);
+}
+
+function stepChat(dtMin) {
+  if (!chat.on) return;
+  const pair = [chat.a, chat.b].filter(Boolean);
+  const couple = pair.length === 2 && pair.every(p => p.stage === 'adult');
+  if (chat.mode === 'argue') {
+    for (const s of pair) {
+      s.needs.social = Math.min(100, s.needs.social + 0.8 * dtMin);
+      s.needs.fun = Math.max(0, s.needs.fun - 1.1 * dtMin);
+    }
+    if (couple) rel = Math.max(0, rel - 0.55 * dtMin);
+    chat.timer -= dtMin;
+    if (chat.timer <= 0) endChat(true);
+    return;
+  }
+  const bonus = (0.8 + rel/120) * (family.partners ? 1.25 : 1);
+  for (const s of pair) {
+    s.needs.social = Math.min(100, s.needs.social + 3.0 * bonus * dtMin);
+    s.needs.fun = Math.min(100, s.needs.fun + 0.9 * dtMin);
+  }
+  if (couple) rel = Math.min(100, rel + 0.30 * dtMin);
+  chat.timer -= dtMin;
+  if (chat.timer <= 0 || pair.every(s => s.needs.social > 96)) endChat(true);
+}
+
+// who a Sim goes to talk to: their partner by preference, otherwise whoever is nearest
+function partnerFor(s) {
+  let best = null, bestD = 1e9;
+  for (const p of people) {
+    if (p === s || !p.mobile || p.actKey === 'sleep') continue;
+    let d = Math.abs(p.tx - s.tx) + Math.abs(p.ty - s.ty);
+    if (family.partners && s.stage === 'adult' && p.stage === 'adult') d -= 5;
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
+/* ---------- growing up ---------- */
+
+const BABY_DECAY = { hunger:9.5, energy:7.5, hygiene:8.0, social:7.0 };
+
+function stepBaby(b, dtMin) {
+  for (const k of BABY_NEEDS)
+    b.needs[k] = Math.max(0, b.needs[k] - BABY_DECAY[k] * dtMin / 60);
+  const crib = byId('crib');
+  b.tx = crib.x; b.ty = crib.y;
+}
+
+function haveBaby() {
+  const ad = adults();
+  if (ad.length < 2) return;
+  const g = Math.random() < 0.5 ? 'm' : 'f';
+  const idx = people.length;
+  const b = makeSim(idx, randomName(g), g, drawTraits(), paletteFor(g, idx),
+                    { stage:'baby', bedId:'kidbed' + family.born, tx:4, ty:1 });
+  for (const k of BABY_NEEDS) b.needs[k] = 80;
+  people.push(b);
+  family.born++;
+  addLog(`${ad[0].name} and ${ad[1].name} had a baby — ${b.name}`);
+  buildCards();
+}
+
+function growUp(b) {
+  b.stage = 'child';
+  b.mobile = true;
+  b.scale = 0.74;
+  b.showNeeds = NEEDS.map(n => n.k);
+  for (const n of NEEDS) b.needs[n.k] = Math.max(b.needs[n.k], 55);
+  b.tx = 4; b.ty = 1;
+  addLog(`${b.name} started walking`);
+  buildCards();
+}
+
+// once a day: everyone ages, and a settled couple may have a baby
+function familyTick() {
+  for (const p of people) {
+    if (p.stage !== 'adult') p.ageDays++;
+    if (p.stage === 'baby' && p.ageDays >= 3) growUp(p);
+  }
+  if (family.partners && rel >= 78 && family.born < 2 && !babyIn() && Math.random() < 0.34)
+    haveBaby();
+}
+
+/* ---------- rendering ---------- */
+
+// classic 2:1 dimetric angle — everything is drawn geometry now, so this is a
+// free choice rather than something measured off artwork. 0.5 reads flatter and
+// more top-down than the old 1/sqrt(2), which was steep enough to make tall
+// furniture (the shower, the bookshelf) loom.
+const ISO_RATIO = 0.5;
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let TW = 42, TH = 23, WALL = 52, OX = 200, OY = 66, VW = 400, VH = 300;
+
+function layout() {
+  const w = cv.parentElement.clientWidth;
+  TW = w / 10.4; TH = TW * ISO_RATIO; WALL = TW * 1.25;
+  OX = w / 2; OY = WALL + 14;
+  const h = OY + (COLS + ROWS) * TH / 2 + 26;
+  VW = w; VH = h;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.height = h + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+const iso = (gx, gy, lift=0) => ({ x: OX + (gx-gy)*TW/2, y: OY + (gx+gy)*TH/2 - lift });
+
+function poly(pts, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 0.6; ctx.stroke(); }
+}
+
+// takes either '#rrggbb' or an 'rgb(r,g,b)' string it produced itself — drawSoftBox
+// re-shades colors that DETAIL functions have sometimes already shaded once.
+function shade(color, amt) {
+  let r, g, b;
+  if (color[0] === '#') {
+    const n = parseInt(color.slice(1), 16);
+    r = n>>16; g = (n>>8)&255; b = n&255;
+  } else {
+    [r, g, b] = color.match(/[\d.]+/g).map(Number);
+  }
+  const c = v => Math.round(Math.min(255, Math.max(0, v*amt)));
+  return `rgb(${c(r)},${c(g)},${c(b)})`;
+}
+
+function drawBox(x, y, w, h, hgt, color, base = 0) {
+  const b = base * TW, lift = b + hgt * TW;
+  const A=iso(x,y,b), B=iso(x+w,y,b), C=iso(x+w,y+h,b), D=iso(x,y+h,b);
+  const A2=iso(x,y,lift), B2=iso(x+w,y,lift), C2=iso(x+w,y+h,lift), D2=iso(x,y+h,lift);
+  const edge = 'rgba(20,14,30,.22)';
+  poly([B,C,C2,B2], shade(color,0.70), edge);
+  poly([C,D,D2,C2], shade(color,0.50), edge);
+  poly([A2,B2,C2,D2], shade(color,1.06), edge);
+}
+
+// "pastel toy" variant of drawBox — rounded top corners, a gradient instead of
+// a flat top tone, and a pale seam standing in for a moulded-plastic highlight.
+// Used only for the pieces that used to be PNG sprites (bed, shower, sink,
+// toilet, sofa, tv); everything else keeps the plain drawBox look.
+function drawSoftBox(x, y, w, h, hgt, color, base = 0, round = 0.16) {
+  const b = base * TW, lift = b + hgt * TW;
+  const r = Math.min(round, w/2, h/2);
+  const A=iso(x+r,y,b), A1=iso(x+w-r,y,b), B=iso(x+w,y+r,b), B1=iso(x+w,y+h-r,b),
+        C=iso(x+w-r,y+h,b), C1=iso(x+r,y+h,b), D=iso(x,y+h-r,b), D1=iso(x,y+r,b);
+  const raise = p => ({ x: p.x, y: p.y - (lift - b) });
+  const edge = 'rgba(20,14,30,.16)';
+  poly([B,C,raise(C),raise(B)], shade(color,0.82), edge);
+  poly([C,D,raise(D),raise(C)], shade(color,0.68), edge);
+  const top = [A,A1,B,B1,C,C1,D,D1].map(raise);
+  const g = ctx.createLinearGradient(top[0].x, top[0].y - TW*0.3, top[0].x, top[4].y);
+  g.addColorStop(0, shade(color,1.22)); g.addColorStop(1, shade(color,1.03));
+  poly(top, g, 'rgba(255,255,255,.5)');
+  const hl = iso(x + w*0.32, y + h*0.32, lift);
+  ctx.beginPath(); ctx.ellipse(hl.x, hl.y - TW*0.05, TW*0.08*Math.min(1,w), TW*0.045*Math.min(1,h), -0.5, 0, 7);
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fill();
+}
+
+// soft contact shadow cast down-right, so furniture sits on the floor
+function drawContactShadow(x, y, w, h, hgt) {
+  const off = Math.min(0.34, hgt * 0.3);
+  poly([iso(x+off, y+off), iso(x+w+off, y+off),
+        iso(x+w+off, y+h+off), iso(x+off, y+h+off)], 'rgba(28,20,44,.16)');
+}
+
+function wallHeight(coord) {
+  if (wallMode === 'off')  return coord === 0 ? WALL : 0;
+  if (wallMode === 'full') return WALL;
+  return coord === 0 ? WALL : WALL * 0.22;
+}
+
+function drawWall(dir, x, y) {
+  const h = wallHeight(dir === 'N' ? y : x);
+  if (h <= 0) return;
+  const a  = iso(x, y);
+  const b  = dir === 'N' ? iso(x+1, y)    : iso(x, y+1);
+  const a2 = iso(x, y, h);
+  const b2 = dir === 'N' ? iso(x+1, y, h) : iso(x, y+1, h);
+
+  // light falls from above, so walls are brighter at the top and sink into shadow
+  const lo = Math.max(a.y, b.y), hi = Math.min(a2.y, b2.y);
+  const g = ctx.createLinearGradient(0, hi, 0, lo);
+  if (dir === 'N') { g.addColorStop(0, '#6e778d'); g.addColorStop(1, '#4b5468'); }
+  else             { g.addColorStop(0, '#5d6679'); g.addColorStop(1, '#3d4557'); }
+  poly([a, b, b2, a2], g);
+
+  const base = h * 0.09;
+  const ab = iso(x, y, base), bb = dir === 'N' ? iso(x+1, y, base) : iso(x, y+1, base);
+  poly([a, b, bb, ab], dir === 'N' ? '#3f4759' : '#39404f');
+
+  const top = dir === 'N' ? '#7d879f' : '#6b748c';
+  const th = TW * 0.055;
+  poly([a2, b2, { x:b2.x, y:b2.y-th }, { x:a2.x, y:a2.y-th }], top);
+}
+
+function drawFloor() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const seam = 'rgba(40,26,16,.10)';
+  for (let x=0;x<COLS;x++)
+    for (let y=0;y<ROWS;y++) {
+      const alt = (x+y) % 2 === 0;
+      const col = (x >= 5 && y < 4) ? (alt ? '#9fb0bd' : '#93a5b3')
+                : (x <  5 && y < 4) ? (alt ? '#a98a6d' : '#9d7f63')
+                : (alt ? '#b98f5d' : '#ab8153');
+      poly([iso(x,y), iso(x+1,y), iso(x+1,y+1), iso(x,y+1)], col, seam);
+    }
+  poly([iso(5.4,4.9), iso(8.7,4.9), iso(8.7,7.2), iso(5.4,7.2)], 'rgba(196,100,90,.2)');
+
+  // daylight falling through the windows onto the floor
+  const h = hour();
+  if (h > 6.5 && h < 18.5) {
+    const a = 0.16 * Math.sin(Math.PI * (h - 6.5) / 12);
+    poly([iso(8.1,0), iso(9.4,0), iso(9.7,2.4), iso(8.4,2.4)], `rgba(255,236,190,${a.toFixed(3)})`);
+    poly([iso(0,6.3), iso(0,7.7), iso(2.4,8.0), iso(2.4,6.6)], `rgba(255,236,190,${a.toFixed(3)})`);
+  }
+
+  for (const o of OBJECTS)
+    drawContactShadow(o.x+0.06, o.y+0.06, o.w-0.12, o.h-0.12, o.hgt);
+
+  // floor darkens where it meets a wall
+  for (const tag of walls) {
+    const [dir, xs, ys] = tag.split(':');
+    const x = +xs, y = +ys;
+    if (wallHeight(dir === 'N' ? y : x) <= 0) continue;
+    const d = 0.32;
+    poly(dir === 'N'
+      ? [iso(x,y), iso(x+1,y), iso(x+1,y+d), iso(x,y+d)]
+      : [iso(x,y), iso(x,y+1), iso(x+d,y+1), iso(x+d,y)], 'rgba(26,20,40,.10)');
+  }
+}
+
+// warm at the edges of the day, cool and dim overnight
+function gradeLight() {
+  const h = hour();
+  let c = null;
+  if (h >= 22 || h < 5)   c = [22, 32, 58, 0.46];
+  else if (h < 6.5)       c = [40, 52, 84, 0.30];
+  else if (h < 7.5)       c = [255, 172, 108, 0.12];
+  else if (h < 17)        c = null;
+  else if (h < 19)        c = [255, 158, 78, 0.15];
+  else if (h < 22)        c = [58, 70, 112, 0.27];
+  if (!c) return;
+  ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${c[3]})`;
+  ctx.fillRect(0, 0, VW, VH);
+}
+
+function drawVignette() {
+  const g = ctx.createRadialGradient(VW/2, VH/2, Math.min(VW,VH)*0.34,
+                                     VW/2, VH/2, Math.max(VW,VH)*0.74);
+  g.addColorStop(0, 'rgba(10,14,26,0)');
+  g.addColorStop(1, 'rgba(10,14,26,.34)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, VW, VH);
+}
+
+function drawLampGlow() {
+  const h = hour();
+  if (h > 6.5 && h < 18.5) return;
+  const o = byId('lamp');
+  const p = iso(o.x + 0.5, o.y + 0.5, o.hgt * TW);
+  const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, TW * 3.4);
+  g.addColorStop(0, 'rgba(255,206,128,.30)');
+  g.addColorStop(0.55, 'rgba(255,206,128,.10)');
+  g.addColorStop(1, 'rgba(255,206,128,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(p.x - TW*3.6, p.y - TW*3.6, TW*7.2, TW*7.2);
+}
+
+function drawWindow() {
+  const isNight = hour() >= 21.5 || hour() < 6;
+  const sky = isNight ? '#26324d' : '#8fc2e0';
+  const frame = 'rgba(240,244,250,.5)';
+
+  // bathroom window on the north wall
+  poly([iso(8.1,0,WALL*0.30), iso(9.4,0,WALL*0.30), iso(9.4,0,WALL*0.82), iso(8.1,0,WALL*0.82)], sky, frame);
+  // living-room window on the west wall
+  poly([iso(0,6.3,WALL*0.30), iso(0,7.7,WALL*0.30), iso(0,7.7,WALL*0.82), iso(0,6.3,WALL*0.82)], sky, frame);
+
+  if (isNight) {
+    const m = iso(8.9, 0, WALL*0.64);
+    ctx.beginPath(); ctx.arc(m.x, m.y, TW*0.10, 0, 7);
+    ctx.fillStyle = '#e8e3cb'; ctx.fill();
+  }
+}
+
+// a glossy, head-heavy toy head: radial-shaded skin, a hair cap, a specular dot
+function drawToyHead(cx, cy, r, colors) {
+  const g = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.1, cx, cy, r);
+  g.addColorStop(0, shade(colors.skin, 1.22)); g.addColorStop(1, colors.skin);
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy - r*0.22, r*0.98, Math.PI, 0);
+  ctx.fillStyle = colors.hair; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx - r*0.32, cy - r*0.30, r*0.16, r*0.09, -0.6, 0, 7);
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fill();
+}
+
+function drawSim(s) {
+  // poses only change once they've actually arrived — not the moment they decide
+  const arrived = !s.path.length && !!s.held;
+  const lying = arrived && s.actKey === 'sleep';
+  const onObj = arrived && !lying && byId(s.held).sit;
+  let gx = s.tx + 0.5, gy = s.ty + 0.5;
+
+  if (arrived) {
+    const o = byId(s.held);
+    const pull = lying ? 1 : onObj ? 0.7 : 0.28;
+    gx += (o.x + o.w/2 - gx) * pull;
+    gy += (o.y + o.h/2 - gy) * pull;
+    // two Sims on one sofa shouldn't share a cushion
+    if (onObj && o.cap > 1) {
+      const off = s.i === 0 ? -0.34 : 0.34;
+      if (o.w >= o.h) gx += off; else gy += off;
+    }
+  }
+
+  // all heights are fractions of a tile; seat is the surface they're resting on
+  const seat = lying ? byId(s.held).hgt : onObj ? byId(s.held).hgt * 0.9 : 0;
+  const bodyH = (lying ? 0.11 : onObj ? 0.28 : 0.38) * s.scale;
+  const bounce = s.path.length ? Math.abs(Math.sin(s.bob)) * 0.05 : 0;
+  const headR = TW * 0.19 * s.scale;   // toy proportions run head-heavy
+  const top = iso(gx, gy, (seat + bodyH + bounce) * TW);
+
+  if (!arrived) {
+    const g = iso(gx, gy);
+    const rg = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, TW*0.2);
+    rg.addColorStop(0, 'rgba(24,16,38,.26)');
+    rg.addColorStop(1, 'rgba(24,16,38,0)');
+    ctx.save(); ctx.translate(g.x, g.y); ctx.scale(1, 0.52); ctx.translate(-g.x, -g.y);
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(g.x, g.y, TW*0.2, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  if (lying) {
+    // beds run away from the headboard, so lay them out along the bed's long axis
+    const o = byId(s.held);
+    const cx = o.x + 0.5, L = o.h, sc = s.scale;
+    const deck = o.hgt;
+    const y0 = o.y + L*0.44, len = (o.y + L - 0.12) - y0;
+    drawSoftBox(cx-0.30*sc, y0, 0.60*sc, len, 0.10, shade(o.color, 1.10), deck, 0.10);
+    drawSoftBox(cx-0.22*sc, y0+len*0.12, 0.44*sc, len*0.5, 0.05, shade(o.color, 1.22), deck+0.10, 0.08);
+    const hp = iso(cx, o.y + L*0.26, (deck + 0.16) * TW);
+    drawToyHead(hp.x, hp.y, headR*0.92, s.colors);
+  } else {
+    // legs sit side by side across the direction of travel and swing while walking
+    const sc = s.scale;
+    const fem = s.gender === 'f';
+    const legH = (onObj ? 0.06 : 0.13) * sc;
+    const walking = s.path.length ? 1 : 0;
+    const px = -s.diry * 0.085 * sc, py = s.dirx * 0.085 * sc;
+    const lift1 = Math.max(0, Math.sin(s.bob*2)) * 0.05 * walking * sc;
+    const lift2 = Math.max(0, Math.sin(s.bob*2 + Math.PI)) * 0.05 * walking * sc;
+    const floorY = seat + bounce;
+    const lw = 0.12 * sc;
+    drawSoftBox(gx-lw/2+px, gy-lw/2+py, lw, lw, legH-lift1, '#6b7690', floorY+lift1, 0.03);
+    drawSoftBox(gx-lw/2-px, gy-lw/2-py, lw, lw, legH-lift2, '#6b7690', floorY+lift2, 0.03);
+    // narrower shoulders on the women, a slightly tapered top on the men
+    const bw = (fem ? 0.32 : 0.37) * sc;
+    drawSoftBox(gx-bw/2, gy-bw/2, bw, bw, bodyH-legH, s.colors.shirt, floorY+legH, 0.10);
+    // arms swing opposite the legs
+    const ax = -s.diry * 0.2 * sc, ay = s.dirx * 0.2 * sc;
+    const aw = 0.09 * sc;
+    const armBase = floorY + legH + (bodyH-legH) * 0.28;
+    drawSoftBox(gx-aw/2+ax, gy-aw/2+ay, aw, aw, 0.16*sc, s.colors.skin, armBase - lift2*0.6, 0.03);
+    drawSoftBox(gx-aw/2-ax, gy-aw/2-ay, aw, aw, 0.16*sc, s.colors.skin, armBase - lift1*0.6, 0.03);
+    if (fem) drawSoftBox(gx-0.15*sc, gy-0.15*sc, 0.30*sc, 0.30*sc, 0.13*sc,
+                     s.colors.hair, floorY + bodyH - 0.10*sc, 0.08);   // hair down to the shoulders
+    const hy = top.y - headR*0.68;
+    drawToyHead(top.x, hy, headR, s.colors);
+  }
+
+  let icon = s.act ? s.act.icon : null;
+  if (icon && s.actKey === 'chat' && chat.on && chat.mode === 'argue') icon = '💢';
+  if (icon) {
+    const bx = top.x + TW*0.3, by = top.y - headR*2.2 - TW*0.26, r = TW*0.2;
+    ctx.beginPath(); ctx.arc(bx, by, r, 0, 7);
+    ctx.fillStyle = 'rgba(245,242,234,.94)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(bx - r*0.85, by + r*0.95, r*0.28, 0, 7); ctx.fill();
+    ctx.font = `${Math.round(r*1.15)}px serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(icon, bx, by + r*0.06);
+  }
+}
+
+/* Each object is built from stacked boxes so it has a recognisable profile
+   rather than being a tinted cube. Coordinates are fractions of a tile. */
+const BOOK = ['#c4645a','#e0b457','#7fb5a8','#6c63c4','#d78b52','#88a0c8'];
+
+const DETAIL = {
+  bed(o) {
+    const wood = '#b98f63', L = o.h;                                   // works for any bed length
+    drawSoftBox(o.x+0.04, o.y+0.00, 0.92, 0.13, 0.56, wood, 0, 0.10);   // headboard
+    drawSoftBox(o.x+0.06, o.y+0.05, 0.88, L-0.10, 0.22, wood, 0, 0.10); // frame
+    drawSoftBox(o.x+0.10, o.y+0.10, 0.80, L-0.20, 0.12, '#fdf3e2', 0.22, 0.08); // mattress
+    drawSoftBox(o.x+0.08, o.y+L*0.42, 0.84, L*0.58-0.08, 0.10, o.color, 0.34, 0.12); // duvet
+    drawSoftBox(o.x+0.20, o.y+0.16, 0.60, L*0.26, 0.10, '#fdf3e2', 0.34, 0.08);      // pillow
+  },
+  crib(o) {
+    drawBox(o.x+0.16, o.y+0.16, 0.68, 0.68, 0.34, o.color, 0);
+    drawBox(o.x+0.20, o.y+0.20, 0.60, 0.60, 0.06, '#efe7d8', 0.34);
+    for (const bx of [0.16, 0.78])                                     // side bars
+      drawBox(o.x+bx, o.y+0.16, 0.06, 0.68, 0.26, shade(o.color,0.88), 0.34);
+    const b = people.find(p => p.stage === 'baby');
+    if (b) {
+      drawBox(o.x+0.32, o.y+0.34, 0.36, 0.32, 0.09, '#e6dcef', 0.40);
+      const hp = iso(o.x+0.5, o.y+0.30, 0.52 * TW);
+      ctx.beginPath(); ctx.arc(hp.x, hp.y, TW*0.075, 0, 7);
+      ctx.fillStyle = b.colors.skin; ctx.fill();
+    }
+  },
+  stand(o) {
+    drawBox(o.x+0.26, o.y+0.26, 0.48, 0.48, 0.40, o.color, 0);
+    drawBox(o.x+0.22, o.y+0.22, 0.56, 0.56, 0.05, shade(o.color,1.2), 0.40);
+    drawBox(o.x+0.36, o.y+0.36, 0.28, 0.28, 0.16, '#e6d9a8', 0.45);    // little lamp
+  },
+  desk(o) {
+    drawBox(o.x+0.10, o.y+0.18, 0.80, 0.64, 0.06, shade(o.color,1.15), 0.40);
+    for (const [dx,dy] of [[0.14,0.22],[0.78,0.22],[0.14,0.76],[0.78,0.76]])
+      drawBox(o.x+dx-0.04, o.y+dy-0.04, 0.08, 0.08, 0.40, shade(o.color,0.8), 0);
+    drawBox(o.x+0.32, o.y+0.30, 0.36, 0.06, 0.26, '#2f3645', 0.46);    // monitor
+    drawBox(o.x+0.34, o.y+0.31, 0.32, 0.03, 0.21, '#7fb0d8', 0.49);
+  },
+  shower(o) {
+    drawSoftBox(o.x+0.08, o.y+0.08, 0.84, 0.84, 0.05, '#fdf3e2', 0, 0.10);     // tray
+    drawSoftBox(o.x+0.08, o.y+0.08, 0.84, 0.07, 0.95, o.color, 0.05, 0.03);    // glass back
+    drawSoftBox(o.x+0.08, o.y+0.08, 0.07, 0.84, 0.95, shade(o.color,0.94), 0.05, 0.03);
+    drawSoftBox(o.x+0.22, o.y+0.18, 0.16, 0.16, 0.06, '#c2cad3', 0.88, 0.05);  // head
+  },
+  sink(o) {
+    drawSoftBox(o.x+0.38, o.y+0.36, 0.26, 0.28, 0.50, '#fdf3e2', 0, 0.10);     // pedestal
+    drawSoftBox(o.x+0.20, o.y+0.24, 0.60, 0.52, 0.16, o.color, 0.50, 0.16);    // basin
+    drawSoftBox(o.x+0.44, o.y+0.28, 0.10, 0.08, 0.16, '#c2cad3', 0.64, 0.03);  // tap
+  },
+  toilet(o) {
+    drawSoftBox(o.x+0.26, o.y+0.08, 0.48, 0.22, 0.52, o.color, 0, 0.10);       // cistern
+    drawSoftBox(o.x+0.30, o.y+0.30, 0.40, 0.42, 0.30, o.color, 0, 0.14);       // pan
+    drawSoftBox(o.x+0.26, o.y+0.28, 0.48, 0.46, 0.05, shade(o.color,0.96), 0.30, 0.10);
+  },
+  fridge(o) {
+    drawBox(o.x+0.12, o.y+0.12, 0.76, 0.76, 1.25, o.color, 0);
+    drawBox(o.x+0.12, o.y+0.12, 0.76, 0.76, 0.02, shade(o.color,0.72), 0.80); // door seam
+    drawBox(o.x+0.80, o.y+0.30, 0.07, 0.40, 0.44, '#8f9088', 0.30);           // handle
+  },
+  stove(o) {
+    drawBox(o.x+0.12, o.y+0.12, 0.76, 0.76, 0.52, o.color, 0);
+    drawBox(o.x+0.10, o.y+0.10, 0.80, 0.80, 0.05, '#3c3c3a', 0.52);           // hob
+    for (const [dx,dy] of [[0.28,0.28],[0.58,0.28],[0.28,0.60],[0.58,0.60]])
+      drawBox(o.x+dx-0.07, o.y+dy-0.07, 0.14, 0.14, 0.02, '#6a6a66', 0.57);   // burners
+    drawBox(o.x+0.16, o.y+0.86, 0.68, 0.05, 0.06, '#c9c9c2', 0.30);           // oven handle
+  },
+  counter(o) {
+    drawBox(o.x+0.10, o.y+0.10, 0.80, 0.80, 0.48, o.color, 0);
+    drawBox(o.x+0.06, o.y+0.06, 0.88, 0.88, 0.06, '#8e887a', 0.48);           // worktop
+  },
+  table(o) {
+    drawBox(o.x+0.04, o.y+0.10, 1.92, 0.80, 0.07, shade(o.color,1.16), 0.39);
+    for (const [dx,dy] of [[0.16,0.20],[1.84,0.20],[0.16,0.80],[1.84,0.80]])
+      drawBox(o.x+dx-0.05, o.y+dy-0.05, 0.10, 0.10, 0.39, shade(o.color,0.78), 0);
+    for (const cx of [0.55, 1.45]) {                                          // two chairs
+      drawBox(o.x+cx-0.22, o.y+1.02, 0.44, 0.40, 0.05, shade(o.color,0.95), 0.26);
+      drawBox(o.x+cx-0.22, o.y+1.36, 0.44, 0.06, 0.34, shade(o.color,0.85), 0.26);
+      for (const lx of [-0.17, 0.17])
+        drawBox(o.x+cx+lx-0.04, o.y+1.18, 0.08, 0.08, 0.26, shade(o.color,0.8), 0);
+    }
+  },
+  sofa(o) {
+    // drawSoftBox already shades its own faces, so pass it the true color and let
+    // height (not a pre-darkened input) do the differentiating — pre-shading here
+    // compounds with its internal shading and the tall backrest reads as near-black.
+    drawSoftBox(o.x+0.06, o.y+0.28, 1.88, 0.64, 0.24, o.color, 0, 0.14);              // seat base
+    drawSoftBox(o.x+0.06, o.y+0.06, 1.88, 0.26, 0.52, o.color, 0, 0.14);              // back
+    drawSoftBox(o.x+0.00, o.y+0.26, 0.16, 0.68, 0.40, o.color, 0, 0.08);              // arms
+    drawSoftBox(o.x+1.84, o.y+0.26, 0.16, 0.68, 0.40, o.color, 0, 0.08);
+    drawSoftBox(o.x+0.20, o.y+0.36, 0.72, 0.48, 0.08, shade(o.color,1.14), 0.24, 0.10); // cushions
+    drawSoftBox(o.x+1.06, o.y+0.36, 0.72, 0.48, 0.08, shade(o.color,1.14), 0.24, 0.10);
+  },
+  tv(o) {
+    drawSoftBox(o.x+0.18, o.y+0.34, 0.64, 0.34, 0.22, '#7d6a52', 0, 0.10);            // stand
+    drawSoftBox(o.x+0.44, o.y+0.46, 0.12, 0.10, 0.12, '#3a4152', 0.22, 0.02);         // neck
+    drawSoftBox(o.x+0.10, o.y+0.44, 0.80, 0.08, 0.46, o.color, 0.34, 0.03);           // panel
+    const lit = (hour() >= 18 || hour() < 7) ? '#9ec9e6' : '#2c3340';
+    drawBox(o.x+0.14, o.y+0.42, 0.72, 0.03, 0.38, lit, 0.38);                 // screen
+  },
+  shelf(o) {
+    drawBox(o.x+0.14, o.y+0.20, 0.72, 0.52, 1.28, o.color, 0);
+    for (let k = 0; k < 4; k++) {
+      const b = 0.22 + k * 0.28;
+      drawBox(o.x+0.18, o.y+0.22, 0.64, 0.44, 0.04, shade(o.color,1.25), b);
+      for (let i = 0; i < 4; i++)
+        drawBox(o.x+0.22+i*0.15, o.y+0.28, 0.10, 0.30, 0.17, BOOK[(k*4+i) % BOOK.length], b+0.04);
+    }
+  },
+  arcade(o) {
+    drawBox(o.x+0.18, o.y+0.22, 0.64, 0.58, 1.08, o.color, 0);
+    drawBox(o.x+0.22, o.y+0.20, 0.56, 0.05, 0.32, '#111726', 0.58);           // bezel
+    drawBox(o.x+0.25, o.y+0.19, 0.50, 0.03, 0.26, '#7be0d0', 0.61);           // screen
+    drawBox(o.x+0.20, o.y+0.62, 0.60, 0.24, 0.06, '#31456b', 0.50);           // controls
+    drawBox(o.x+0.44, o.y+0.70, 0.08, 0.08, 0.10, '#e05c5c', 0.56);           // stick
+  },
+  easel(o) {
+    for (const [dx,dy] of [[0.22,0.24],[0.78,0.24],[0.50,0.78]])
+      drawBox(o.x+dx-0.04, o.y+dy-0.04, 0.08, 0.08, 0.80, '#9b7b4f', 0);      // tripod
+    drawBox(o.x+0.16, o.y+0.28, 0.68, 0.07, 0.52, '#f4efe3', 0.34);           // canvas
+    drawBox(o.x+0.30, o.y+0.27, 0.26, 0.02, 0.20, '#c47a6a', 0.50);           // paint on it
+  },
+  guitar(o) {
+    drawBox(o.x+0.36, o.y+0.36, 0.28, 0.28, 0.06, '#4b4b46', 0);             // stand
+    drawBox(o.x+0.34, o.y+0.40, 0.32, 0.20, 0.34, o.color, 0.06);            // body
+    drawBox(o.x+0.44, o.y+0.46, 0.12, 0.09, 0.40, '#8a5a3c', 0.40);          // neck
+  },
+  mat(o) {
+    drawBox(o.x+0.10, o.y+0.16, 0.80, 0.68, 0.035, o.color, 0);
+    drawBox(o.x+0.16, o.y+0.22, 0.68, 0.56, 0.01, shade(o.color,1.2), 0.035);
+  },
+  lamp(o) {
+    drawBox(o.x+0.38, o.y+0.38, 0.24, 0.24, 0.05, '#5a5a52', 0);             // base
+    drawBox(o.x+0.45, o.y+0.45, 0.10, 0.10, 0.78, '#6e6e64', 0.05);          // pole
+    drawBox(o.x+0.30, o.y+0.30, 0.40, 0.40, 0.24, o.color, 0.82);            // shade
+  },
+  plant(o) {
+    drawBox(o.x+0.34, o.y+0.34, 0.32, 0.32, 0.26, '#a8613f', 0);             // pot
+    drawBox(o.x+0.24, o.y+0.24, 0.52, 0.52, 0.30, o.color, 0.26);            // foliage
+    drawBox(o.x+0.34, o.y+0.34, 0.32, 0.32, 0.20, shade(o.color,1.2), 0.56);
+  },
+};
+
+
+function drawObject(o) {
+  const fn = DETAIL[o.id] ||
+             ((o.id.startsWith('bed') || o.id.startsWith('kidbed')) ? DETAIL.bed : null);
+  if (fn) fn(o);
+  else drawBox(o.x+0.08, o.y+0.08, o.w-0.16, o.h-0.16, o.hgt, o.color, 0);
+}
+
+// a Sim using furniture is drawn at the furniture's position, so sort them there
+function simDepth(s) {
+  if (!s.path.length && s.held) {
+    const o = byId(s.held);
+    return (o.x + o.w/2) + (o.y + o.h/2) + 0.55;
+  }
+  return s.tx + s.ty + 1;
+}
+
+function render() {
+  drawFloor();
+
+  const items = [];
+  for (const tag of walls) {
+    const [dir, xs, ys] = tag.split(':');
+    const x = +xs, y = +ys;
+    items.push({ depth: x + y - 0.12, draw: () => drawWall(dir, x, y) });
+  }
+  for (const o of OBJECTS) items.push({
+    depth: (o.x + o.w/2) + (o.y + o.h/2),
+    draw: () => drawObject(o),
+  });
+  for (const s of people)
+    if (s.mobile) items.push({ depth: simDepth(s), draw: () => drawSim(s) });
+
+  items.sort((a,b) => a.depth - b.depth);
+  let windowDrawn = false;
+  for (const it of items) {
+    if (!windowDrawn && it.depth > 0.4) { drawWindow(); windowDrawn = true; }
+    it.draw();
+  }
+  if (!windowDrawn) drawWindow();
+
+  gradeLight();
+  drawLampGlow();
+  drawVignette();
+}
+
+/* ---------- readouts ---------- */
+
+const cards = document.getElementById('cards');
+
+const STAGE_TAG = { baby:'baby', child:'child' };
+
+function buildCards() {
+  cards.innerHTML = people.map((s, i) => {
+    const rows = s.showNeeds.map(k => {
+      const n = NEED(k);
+      return `<div class="need-row"><span class="lbl">${n.label}</span>` +
+             `<span class="bar"><i id="b-${i}-${k}"></i></span></div>`;
+    }).join('');
+    const tag = STAGE_TAG[s.stage]
+      ? `<span class="traits">${STAGE_TAG[s.stage]}</span>`
+      : `<span class="traits">${s.traits.map(t => t.name).join(' · ')}</span>`;
+    return `
+  <div class="card">
+    <div class="card-head">
+      <span class="swatch" style="background:${s.colors.shirt}"></span>
+      <input class="nm" value="${s.name}" maxlength="8" aria-label="Name" data-i="${i}">
+      <span class="mood" id="mood-${i}">🙂</span>
+      <span class="moodword" id="mw-${i}"></span>
+      ${tag}
+    </div>
+    <div class="act" id="act-${i}"></div>
+    <div class="needs">${rows}</div>
+  </div>`;
+  }).join('');
+
+  cards.querySelectorAll('.nm').forEach(inp => {
+    inp.addEventListener('input', () => {
+      people[+inp.dataset.i].name = inp.value.trim() || '?';
+    });
+  });
+}
+buildCards();
+
+function fmtTime() {
+  const m = Math.floor(minutes) % 1440;
+  let h = Math.floor(m/60);
+  const mm = String(m%60).padStart(2,'0');
+  const ap = h < 12 ? 'am' : 'pm';
+  h = h%12 === 0 ? 12 : h%12;
+  return `${h}:${mm}${ap}`;
+}
+
+function addLog(text) {
+  if (quiet) return;
+  logs.unshift({ t: fmtTime(), text });
+  if (logs.length > 30) logs.pop();
+  document.getElementById('log').innerHTML =
+    logs.map(l => `<li><span class="t">${l.t}</span><span>${l.text}</span></li>`).join('');
+}
+
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n);
+const barColor = v => v > 55 ? cssVar('--good') : v > 25 ? cssVar('--mid') : cssVar('--low');
+
+const GOING = {
+  sleep:'Heading to bed', eat:'Going to the table', cook:'Heading to the stove',
+  snack:'Off to the fridge', toilet:'Hurrying to the bathroom', shower:'Going to shower',
+  wash:'Going to the sink', tv:'Heading for the sofa', online:'Walking to the desk',
+  relax:'Wandering to the sofa', chat:'Looking for company',
+  read:'Going to the bookshelf', paint:'Heading to the easel',
+  guitar:'Going for the guitar', arcade:'Off to the arcade cabinet',
+  stretch:'Heading for the mat', tend:'Going to the baby',
+};
+
+function paintUI() {
+  people.forEach((s, i) => {
+    for (const k of s.showNeeds) {
+      const el = document.getElementById(`b-${i}-${k}`);
+      if (!el) return;
+      el.style.width = s.needs[k] + '%';
+      el.style.background = barColor(s.needs[k]);
+    }
+    const mood = document.getElementById('mood-'+i);
+    const word = document.getElementById('mw-'+i);
+    const act  = document.getElementById('act-'+i);
+    if (!mood) return;
+    if (s.stage === 'baby') {
+      const worst = Math.min(...BABY_NEEDS.map(k => s.needs[k]));
+      mood.textContent = worst > 60 ? '😴' : worst > 30 ? '😦' : '😭';
+      word.textContent = worst > 60 ? 'settled' : worst > 30 ? 'fussing' : 'crying';
+      act.textContent = 'In the crib';
+      return;
+    }
+    const m = moodOf(s);
+    mood.textContent = m.emoji;
+    word.textContent = m.label;
+    act.textContent =
+      s.path.length && s.actKey ? (GOING[s.actKey] || 'On the move')
+      : s.act ? s.act.verb : 'Deciding what to do';
+  });
+  document.getElementById('time').textContent = fmtTime();
+  document.getElementById('day').textContent = 'Day ' + day;
+  const rb = document.getElementById('relBar');
+  rb.style.width = rel + '%';
+  rb.style.background = barColor(rel);
+  const kids = people.length - 2;
+  document.getElementById('relVal').textContent =
+    family.partners
+      ? (kids ? `Family of ${people.length}` : 'Partners')
+      : rel>82 ? 'Inseparable' : rel>60 ? 'Close' : rel>38 ? 'Friends'
+      : rel>18 ? 'Warming up' : 'Strangers';
+}
+
+/* ---------- loop ---------- */
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last)/1000);
+  last = now;
+  if (speed > 0) {
+    const dtMin = dt * MIN_PER_SEC * speed;
+    const before = minutes;
+    minutes += dtMin;
+    if (Math.floor(minutes/1440) > Math.floor(before/1440)) { day++; addLog('A new day'); familyTick(); }
+    for (const s of people) (s.mobile ? stepSim : stepBaby)(s, dtMin);
+    stepChat(dtMin);
+    rel = Math.max(0, rel - 0.0016 * dtMin);
+  }
+  render();
+  paintUI();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- saving and catching up ---------- */
+
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      v: 4, at: Date.now(), minutes, day, rel, wallMode, family,
+      people: people.map(s => ({
+        name: s.name, gender: s.gender, stage: s.stage, bedId: s.bedId,
+        ageDays: s.ageDays, traits: s.traitKeys, needs: s.needs,
+        tx: s.tx, ty: s.ty, emotion: s.emotion,
+      })),
+    }));
+  } catch (e) { /* storage unavailable — the sim still runs, it just won't persist */ }
+}
+
+// Time away runs far slower than live time: about one in-world day per real hour.
+function catchUp(d) {
+  const away = Math.min(MAX_AWAY, Math.max(0, (Date.now() - d.at) / 1000 * AWAY_MIN_PER_SEC));
+  if (away < 30) return;
+  quiet = true;
+  let left = away;
+  while (left > 0) {
+    const dt = Math.min(4, left);
+    const before = minutes;
+    minutes += dt;
+    if (Math.floor(minutes/1440) > Math.floor(before/1440)) { day++; familyTick(); }
+    for (const s of people) (s.mobile ? stepSim : stepBaby)(s, dt);
+    stepChat(dt);
+    rel = Math.max(0, rel - 0.0016 * dt);
+    left -= dt;
+  }
+  quiet = false;
+  const hrs = Math.round(away / 60);
+  addLog(hrs >= 24
+    ? `While you were away, ${Math.round(hrs/24)} day(s) passed here`
+    : `While you were away, ${hrs} hour(s) passed here`);
+}
+
+document.querySelectorAll('.controls button[data-s]').forEach(b => {
+  b.addEventListener('click', () => {
+    speed = Number(b.dataset.s);
+    document.querySelectorAll('.controls button[data-s]').forEach(o =>
+      o.setAttribute('aria-pressed', String(o === b)));
+  });
+});
+
+const wallBtn = document.getElementById('wallBtn');
+if (saved && saved.wallMode) wallMode = saved.wallMode;
+wallBtn.textContent = 'Walls: ' + wallMode;
+wallBtn.addEventListener('click', () => {
+  wallMode = wallMode === 'cutaway' ? 'full' : wallMode === 'full' ? 'off' : 'cutaway';
+  wallBtn.textContent = 'Walls: ' + wallMode;
+  save();
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  location.reload();
+});
+
+setInterval(save, 5000);
+window.addEventListener('beforeunload', save);
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+
+window.addEventListener('resize', layout);
+layout();
+if (saved) { addLog('Back again'); catchUp(saved); }
+else addLog('Everyone woke up');
+for (const s of people) if (s.mobile && !s.actKey) think(s);
+requestAnimationFrame(frame);
+</script>
