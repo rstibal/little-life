@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Little Life
 
 A single-file isometric life simulator. Two adults live in a small flat, meet their
@@ -94,7 +98,7 @@ black again, this is the first thing to check.)
 ## Invariants that fail silently
 
 Every real bug in this project so far was a layout error that threw no exception.
-`tools/verify.js` checks all of these; run it after touching `OBJECTS` or `walls`.
+`verify.js` checks all of these; run it after touching `OBJECTS` or `walls`.
 
 1. **Every walkable tile must be reachable.** Furniture can seal off a corner. A
    child once spawned into a pocket enclosed by a bed, the crib and a wall.
