@@ -6,7 +6,7 @@ own needs, form a relationship, and may end up with children.
 There is no player control beyond speed — it's something you watch, not something
 you play.
 
-![One Sim asleep, the other playing guitar, in the pixel-art flat](screenshot.png)
+![One Sim asleep, the other playing guitar, in the pixel-art flat on an evening with the lamps on](screenshot.png)
 
 ## Running it
 
