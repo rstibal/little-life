@@ -19,17 +19,15 @@ embed.py          orphaned — no art/ pack left to embed; kept in case that cha
 ```
 
 `index.html` is fully self-contained and has no build step: every object and every
-person is plain canvas geometry (`drawBox` / `drawSoftBox`), so the file can be moved
-or opened from disk with nothing alongside it and nothing to regenerate. There used to
-be a `tools/` folder holding a PNG sprite pack and an embed script; both are gone as
-of the pastel-toy pass (see Sprites, below) and `index.html`/`verify.js` now live at
-the project root instead of one level down.
+person is generated pixel art (see Rendering, below), so the file can be moved or
+opened from disk with nothing alongside it and nothing to regenerate. The only external
+request is the Pixelify Sans web font, which falls back to monospace offline.
 
 ## Conventions
 
 - **Bump the version on every round of changes.** Rob keeps versions as separate
-  files (`little-life-v1.html` … `little-life-v9.html`). `index.html` here is v10
-  as of the sprite-removal / pastel-toy pass.
+  files (`little-life-v1.html` … `little-life-v10.html`). `index.html` here is v11
+  as of the pixel-art pass.
 - Plain patch increments. No `dev.`/`beta` tags.
 - No build step, no dependencies, no framework. Vanilla JS and a 2D canvas.
 - Comments explain *why* a constant has its value, not what the line does.
@@ -64,36 +62,63 @@ couple may have a baby each day. Babies can't act — only a parent tending the 
 meets their needs. After 3 days a baby becomes a mobile child at 0.74 scale with its
 own bed, running the same brain minus the adult-only actions.
 
-**Rendering.** Isometric, depth-sorted by `gx + gy`, drawn back to front.
-`ISO_RATIO = 0.5` (classic 2:1 dimetric). This used to be `1/√2` to match a PNG
-sprite pack's drawn angle; now that everything is geometry, it's a free choice —
-0.5 reads flatter and less looming than the old ratio. If it ever changes again,
-nothing desynchronises since there's no artwork to match, just re-eyeball the room.
+**Rendering.** Isometric 2:1, depth-sorted by `gx + gy`, drawn back to front — see
+the next section.
 
-## Sprites — retired
+## Rendering — pixel art (v11)
 
-v10 replaced the last PNG sprites (bed, shower, sink, toilet, sofa, tv — the pieces
-that used to come from a 116px CC0 pack) with plain canvas geometry, matching
-everything else in the room. Motivation: the pack was hand-picked and Rob couldn't
-find more pieces that matched it, so continuing to depend on external art was a dead
-end. `art/`, `tools/embed.py`'s job, and the base64 blob are all gone.
+The room is drawn **one pixel at a time** into a buffer (`buf`, packed `Uint32Array`),
+then `putImageData` onto a canvas scaled up with `image-rendering: pixelated`. There
+are no canvas paths anywhere, so nothing is anti-aliased. Tiles are 32×16 px; `WALL`
+is 40 px; the room itself is `ROOM_W` (336) × `PH` (220).
 
-**"Pastel toy" style.** Both the six ex-sprited objects and the two Sims use
-`drawSoftBox()` / `drawToyHead()` (in `index.html`, next to `drawBox`) instead of the
-plain flat-shaded boxes everything else still uses: rounded top corners, a gradient
-top face instead of a flat tone, a pale seam standing in for a moulded-plastic
-highlight, and — for heads — a bigger radius with a radial-gradient fill and a
-specular dot. The rest of the furniture (fridge, table, shelf, etc.) intentionally
-keeps the older flat `drawBox` look; only the pieces that used to be sprited and the
-people were in scope for this pass.
+**Scaling is always a whole number of device pixels per art pixel** — Rob prefers
+even pixels over edge-to-edge. `layout()` picks the biggest whole scale `k` at which
+the room fits the stage, then widens the buffer (`PW`, with `OX` recentred) so it
+fills the stage at that same `k`; the extra width is just more backdrop. Every
+full-frame buffer is reallocated when `PW` changes. Don't go back to stretching to an
+exact width: fractional scales make some pixel rows fatter than others and walking
+people shimmer.
 
-**`shade()` accepts its own output.** `drawSoftBox` re-shades whatever color it's
-given, and DETAIL functions sometimes hand it an already-shaded `shade(o.color, x)`
-string rather than the raw hex. `shade()` therefore parses both `#rrggbb` and
-`rgb(r,g,b)` input — if it only handled hex, a pre-shaded color would parse as NaN
-and silently render solid black. (This exact bug shipped once, on the sofa and
-shower, before `shade()` was made to handle both formats — if a piece ever renders
-black again, this is the first thing to check.)
+- **One rasteriser.** `scan()` is an even-odd scanline fill sampling pixel centres;
+  `fillPoly` takes either a colour or a painter `fn(x, y, existing)`, which is how
+  wallpaper, windows, the bookshelf's books, the easel painting and screens are
+  textured — the painter maps the pixel back onto its plane with `onS`/`onE`.
+- **`prism()`** extrudes any convex footprint. `box`, `cyl` (octagon) and `soft`
+  (chamfered) are wrappers. Visible sides are shaded by facing, the top gets a lit
+  front rim, and the **outline is found, not stroked**: the silhouette is stamped into
+  a scratch buffer and its border pixels coloured, so outlines are always exactly one
+  pixel whatever rounding did to the vertices.
+- **People** are built from parts by `buildPerson` into an 18×30 grid (head, hair,
+  torso, arms, legs, face), auto-outlined, and cached by colours+pose+frame+facing+face.
+  Two facings are drawn and two mirrored. Poses: stand, walk (4 frames), use, talk,
+  sit, sitback, stretch, guitar, head (sleepers, the baby, card portraits). Faces
+  follow mood and blink.
+- **`placeSim`** decides where and how each person is drawn *and* their depth — the
+  one place invariants 5 and 6 below live now. Seated poses put people on the actual
+  seat (sofa cushion, table chair, desk chair, toilet).
+- **`FRONT`** holds parts of an object that belong *in front of* its user (table
+  chairs, desk chair, shower glass). They're separate draw items at object depth
+  +0.7, where the user sits at +0.55.
+- **Floor** is per-pixel (`floorPx`) and baked once per wall mode. Its `X/Y` are tile
+  coords ×32, which is what makes tile grout and plank seams exact 2:1 stairs.
+- **Walls** have thickness: papered face (per-room `WALLPAPER`), cap, and end faces
+  where a run stops. `DECOR` paints windows (live sky, clouds, skyline, stars),
+  the clock (real time), mirror, pictures and so on straight onto the wall plane.
+- **Light** is a multiply pass after everything's drawn: an ambient tint keyed to the
+  hour (`AMB`) plus point lights (lamps after dark, TV/fridge/stove/monitor/arcade
+  while in use) that fall off in dithered quarter steps. Pixels drawn with `EMIT`
+  set (lamp shades, screens, window glass) skip it and stay lit.
+- Bubbles and particles (Zs, hearts, notes, steam, shower drops) go on after the
+  light pass.
+
+**`shade()` accepts its own output.** DETAIL code sometimes hands it an
+already-shaded `rgb()` string rather than a hex, so it parses both — if it only
+handled hex, a pre-shaded colour would parse as NaN and silently render black (this
+shipped once in v10). It also hue-shifts: shadows toward violet, highlights warm.
+
+**Layout change in v11:** the TV moved from (6,4) to (6,8) so the sofa faces south —
+toward the camera — and people watching TV show their faces instead of their backs.
 
 ## Invariants that fail silently
 
@@ -125,10 +150,6 @@ streak means someone is stuck.
 
 ## Known gaps
 
-- `kidbed1` is a 1×1 slot and still uses the plain `DETAIL.bed` geometry at a smaller
-  footprint than the adult beds — cosmetic only now that nothing is sprite-sized.
-- Only bed/shower/sink/toilet/sofa/tv and the two Sims got the pastel-toy treatment;
-  the rest of the furniture is still the older flat `drawBox` look. Extending the
-  pastel style to everything else is a reasonable follow-up if the mixed look bothers
-  Rob, but wasn't asked for.
+- Chairs at the table stick out into tiles (2,6) and (3,6), which are walkable, so
+  someone walking right past can clip them for a frame or two.
 - Children never become adults; the household caps at two children.

@@ -6,7 +6,7 @@ own needs, form a relationship, and may end up with children.
 There is no player control beyond speed — it's something you watch, not something
 you play.
 
-![One Sim asleep, the other playing guitar, in the pastel-toy flat](screenshot.png)
+![One Sim asleep, the other playing guitar, in the pixel-art flat](screenshot.png)
 
 ## Running it
 
@@ -28,7 +28,7 @@ Time keeps running while the tab is closed: reopening the page replays the elaps
 time at full simulation fidelity (just without the on-screen logging) rather than
 faking a summary, so the household you come back to is one that actually happened.
 
-Rendering is isometric, depth-sorted, and drawn entirely with `<canvas>` primitives —
+Rendering is isometric, depth-sorted, and drawn as pixel art, one pixel at a time into a small buffer —
 no image assets. See [`CLAUDE.md`](CLAUDE.md) for the internals (the brain, the
 render pipeline, the layout invariants) if you're digging into the code.
 
