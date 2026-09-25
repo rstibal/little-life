@@ -8,7 +8,7 @@ you play.
 
 **[Watch it in your browser →](https://rstibal.github.io/little-life/)**
 
-![One Sim asleep, the other playing guitar, in the pixel-art flat on an evening with the lamps on](screenshot.png)
+![Early evening in the pixel-art flat: a resident and a visiting friend playing cards at the dining table, two more dancing by the record player](screenshot.png)
 
 ## Running it
 
