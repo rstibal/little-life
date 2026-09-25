@@ -6,11 +6,16 @@ own needs, form a relationship, and may end up with children.
 There is no player control beyond speed — it's something you watch, not something
 you play.
 
+**[Watch it in your browser →](https://rstibal.github.io/little-life/)**
+
 ![One Sim asleep, the other playing guitar, in the pixel-art flat on an evening with the lamps on](screenshot.png)
 
 ## Running it
 
-Open [`index.html`](index.html) in a browser. That's it — no build step, no
+Play it at [rstibal.github.io/little-life](https://rstibal.github.io/little-life/),
+which GitHub Pages republishes from `master` on every push.
+
+Or open [`index.html`](index.html) in a browser. That's it — no build step, no
 dependencies, no server. Everything (markup, styles, simulation, and an entirely
 procedural canvas renderer) lives in that one file.
 

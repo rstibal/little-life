@@ -75,7 +75,12 @@ is 40 px; the room itself is `ROOM_W` (336) × `PH` (220).
 **Scaling is always a whole number of device pixels per art pixel** — Rob prefers
 even pixels over edge-to-edge. `layout()` picks the biggest whole scale `k` at which
 the room fits the stage, then widens the buffer (`PW`, with `OX` recentred) so it
-fills the stage at that same `k`; the extra width is just more backdrop. Every
+fills the stage at that same `k`; the extra width is just more backdrop. On desktop
+and tablet (viewport ≥ 700×500) `k` is also capped so the header, room and stats fit
+on one screen — Rob wants everything visible without scrolling there — but never
+below 2×; phones scroll and are sized by width alone. `layout()` re-runs whenever
+the cards are rebuilt, since a new person changes the stats' height, and desktop
+keeps every card in one row (`--people` columns) for the same reason. Every
 full-frame buffer is reallocated when `PW` changes. Don't go back to stretching to an
 exact width: fractional scales make some pixel rows fatter than others and walking
 people shimmer.
