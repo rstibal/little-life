@@ -60,9 +60,8 @@
   /* stats strip: people on the left, the Together meter and log on the right */
   .below { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,320px); gap:14px 20px;
            grid-auto-rows:minmax(112px,auto); }
-  /* everyone in one row on desktop, however many there are, so a new baby doesn't add a
-     second row of cards and push the room down a whole scale step */
-  #cards { display:grid; grid-template-columns:repeat(var(--people, 2), minmax(0, 1fr)); gap:14px 16px; align-content:start; }
+  /* visitors don't get cards — the household is always the same two people */
+  #cards { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px 16px; align-content:start; }
 
   .card { padding:8px 10px 10px; container-type:inline-size; }
   .card-body { display:grid; gap:0 14px; }
@@ -97,6 +96,8 @@
          border-bottom:2px solid var(--panel-2); margin-bottom:6px; }
   .rel .lbl { color:var(--ink-dim); flex:none; }
   .rel .val { color:var(--ink); flex:none; min-width:9ch; text-align:right; }
+  .guests { font-size:13px; color:var(--lamp); margin:-2px 0 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .guests:empty { display:none; }
   h2 { font-size:13px; font-weight:500; color:var(--ink-faint); margin:0 0 2px; }
   .log { list-style:none; margin:0; padding:0; font-size:13.5px; flex:1; min-height:0; overflow-y:auto;
          scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
@@ -156,6 +157,7 @@
         <span class="bar"><i id="relBar"></i></span>
         <span class="val" id="relVal">Strangers</span>
       </div>
+      <div class="guests" id="guests"></div>
       <h2>What happened</h2>
       <ul class="log" id="log"></ul>
     </div>
@@ -190,62 +192,89 @@ const TRAITS = {
   bookish:   { name:'bookish',    weight:{fun:0.75}, chat:0.75 },
 };
 
+/* `kind` shares one drawing between several objects. `use` lists the tiles (relative to
+   the object) someone must stand on to use it — without it any neighbouring tile will
+   do, which is how people ended up playing the arcade from the side of the cabinet. */
 const OBJECTS = [
   // bedroom — beds run away from the head wall, nightstand between them
-  { id:'bed0',   x:1, y:0, w:1, h:2, hgt:0.20, color:'#9891e0', sit:true, cap:1 },
-  { id:'bed1',   x:3, y:0, w:1, h:2, hgt:0.20, color:'#7fc0e0', sit:true, cap:1 },
-  { id:'stand',  x:2, y:0, w:1, h:1, hgt:0.42, color:'#7a5a3e', cap:9 },
-  { id:'desk',   x:0, y:3, w:1, h:1, hgt:0.46, color:'#8a6a4a', cap:1 },
-  { id:'kidbed0',x:0, y:0, w:1, h:2, hgt:0.20, color:'#d78b52', sit:true, cap:1 },
-  { id:'kidbed1',x:3, y:3, w:1, h:1, hgt:0.34, color:'#88a0c8', sit:true, cap:1 },
-  { id:'crib',   x:4, y:0, w:1, h:1, hgt:0.50, color:'#c8b08a', cap:1 },
+  { id:'bed0',   kind:'bed', x:1, y:0, w:1, h:2, color:'#9891e0', cap:1 },
+  { id:'bed1',   kind:'bed', x:3, y:0, w:1, h:2, color:'#7fc0e0', cap:1 },
+  { id:'stand',  x:2, y:0, w:1, h:1, color:'#7a5a3e', cap:9 },
+  { id:'plant2', kind:'plant', x:0, y:0, w:1, h:1, color:'#4e8f5a', cap:9 },
+  { id:'wardrobe', x:5, y:0, w:1, h:1, color:'#8a6a4a', cap:9 },
+  { id:'desk',   x:0, y:1, w:1, h:1, color:'#8a6a4a', cap:1 },
+  { id:'mat',    x:2, y:3, w:1, h:1, color:'#7fb5a8', cap:1 },
 
-  // bathroom — all plumbing along one wall
-  { id:'shower', x:5, y:0, w:1, h:1, hgt:1.00, color:'#a6e4ea', cap:1 },
-  { id:'sink',   x:6, y:0, w:1, h:1, hgt:0.55, color:'#cdeadf', cap:1 },
-  { id:'toilet', x:7, y:0, w:1, h:1, hgt:0.40, color:'#fdf3e2', sit:true, cap:1 },
+  // bathroom — plumbing along the back wall, the tub under the window
+  { id:'shower', x:6, y:0, w:1, h:1, color:'#a6e4ea', cap:1 },
+  { id:'sink',   x:7, y:0, w:1, h:1, color:'#cdeadf', cap:1 },
+  { id:'toilet', x:8, y:0, w:1, h:1, color:'#fdf3e2', cap:1 },
+  { id:'tub',    x:9, y:0, w:1, h:2, color:'#f4f0e8', cap:1 },
 
-  // kitchen — a run of units down the west wall, table alongside
-  { id:'fridge', x:0, y:4, w:1, h:1, hgt:1.25, color:'#d7d7cb', cap:1 },
-  { id:'stove',  x:0, y:5, w:1, h:1, hgt:0.55, color:'#8b8b84', cap:1 },
-  { id:'counter',x:0, y:6, w:1, h:1, hgt:0.52, color:'#b9b3a4', cap:9 },
-  { id:'table',  x:2, y:5, w:2, h:1, hgt:0.46, color:'#a8763e', cap:2 },
+  // kitchen down the west wall; the dining table's footprint includes its four chairs,
+  // so nobody walks through them
+  { id:'fridge', x:0, y:4, w:1, h:1, color:'#d7d7cb', cap:1 },
+  { id:'stove',  x:0, y:5, w:1, h:1, color:'#8b8b84', cap:1 },
+  { id:'counter',x:0, y:6, w:1, h:1, color:'#b9b3a4', cap:9 },
+  { id:'table',  x:2, y:5, w:2, h:3, color:'#a8763e', cap:4 },
 
-  // hobbies along the divider wall
-  { id:'guitar', x:4, y:4, w:1, h:1, hgt:0.78, color:'#c98a3e', cap:1 },
-  { id:'easel',  x:5, y:4, w:1, h:1, hgt:0.95, color:'#cbb089', cap:1 },
-  { id:'shelf',  x:9, y:4, w:1, h:1, hgt:1.30, color:'#8a5a3c', cap:1 },
-  { id:'arcade', x:0, y:8, w:1, h:1, hgt:1.10, color:'#4a6fa5', cap:1 },
-  { id:'mat',    x:3, y:8, w:1, h:1, hgt:0.04, color:'#7fb5a8', cap:1 },
+  // entry — the front door is on the west wall at y 8; tile (0,8) stays clear for it
+  { id:'bench',  x:0, y:9, w:1, h:1, color:'#a8744a', cap:1 },
+  { id:'easel',  x:2, y:9, w:1, h:1, color:'#cbb089', cap:1, use:[[1,0]] },
+  { id:'guitar', x:4, y:9, w:1, h:1, color:'#c98a3e', cap:1 },
 
-  // living — the sofa faces south across the rug to the TV, so sitters face the camera
-  { id:'sofa',   x:6, y:6, w:2, h:1, hgt:0.16, color:'#ff9c74', sit:true, cap:2 },
-  { id:'tv',     x:6, y:8, w:1, h:1, hgt:0.45, color:'#5c6486', cap:9 },
-  { id:'lamp',   x:9, y:6, w:1, h:1, hgt:1.05, color:'#e0b457', cap:9 },
-  { id:'plant',  x:9, y:9, w:1, h:1, hgt:0.72, color:'#4e8f5a', cap:9 },
+  // living — every seat faces south, toward the TV and the camera, so sitters show their faces
+  { id:'tank',   x:5, y:4, w:1, h:1, color:'#6fc3d8', cap:1, use:[[0,1]] },
+  { id:'arcade', x:6, y:4, w:1, h:1, color:'#4a6fa5', cap:1, use:[[0,1]] },
+    { id:'shelf',  x:9, y:4, w:1, h:1, color:'#8a5a3c', cap:9 },
+  { id:'chair0', kind:'armchair', x:5, y:6, w:1, h:1, color:'#7fb5a8', cap:1 },
+  { id:'sofa',   x:6, y:6, w:2, h:1, color:'#ff9c74', cap:2 },
+  { id:'chair1', kind:'armchair', x:8, y:6, w:1, h:1, color:'#7fb5a8', cap:1 },
+  { id:'lamp',   x:9, y:6, w:1, h:1, color:'#e0b457', cap:9 },
+  { id:'record', x:9, y:8, w:1, h:1, color:'#7a5a3e', cap:2, use:[[-1,1],[0,1]] },   // room for two to dance, in front of it
+  { id:'tv',     x:6, y:9, w:2, h:1, color:'#5c6486', cap:9 },
+  { id:'plant',  x:5, y:9, w:1, h:1, color:'#4e8f5a', cap:9 },
 ];
 const byId = id => OBJECTS.find(o => o.id === id);
+const SEATS = ['sofa', 'chair0', 'chair1', 'bench'];
 
+/* guest: visitors may do it too. group: better with company — joining someone already
+   at it scores higher, and doing it together tops up social. clash: can't share the
+   object with that activity (one TV, one screen). */
 const ACTS = {
-  sleep:  { obj:s=>s.bedId,   need:'energy',  rate:0.30, cap:99, verb:'Sleeping',           icon:'💤', log:'went to bed' },
-  tend:   { obj:()=>'crib',   verb:'Looking after the baby', icon:'🍼', log:'went to check on the baby',
-            adultOnly:true, tend:true },
-  eat:    { obj:()=>'table',  need:'hunger',  rate:3.40, cap:98, verb:'Eating',             icon:'🍽️', log:'sat down to eat' },
-  cook:   { obj:()=>'stove',  fixed:22,                          verb:'Cooking',            icon:'🍳', log:'started cooking', then:'eat', adultOnly:true },
-  snack:  { obj:()=>'fridge', need:'hunger',  rate:4.50, cap:52, verb:'Raiding the fridge', icon:'🥪', log:'grabbed a snack' },
-  toilet: { obj:()=>'toilet', need:'bladder', rate:11.0, cap:99, verb:'In the bathroom',    icon:'🚽', log:'went to the bathroom' },
-  shower: { obj:()=>'shower', need:'hygiene', rate:5.00, cap:98, verb:'Taking a shower',    icon:'🚿', log:'got in the shower' },
-  wash:   { obj:()=>'sink',   need:'hygiene', rate:7.00, cap:55, verb:'Washing up',         icon:'🧼', log:'washed up' },
-  tv:     { obj:()=>'sofa',   need:'fun',     rate:2.60, cap:88, verb:'Watching TV',        icon:'📺', log:'put the TV on', variety:true, likes:'lazy' },
-  read:   { obj:()=>'shelf',  need:'fun',     rate:2.20, cap:88, verb:'Reading',            icon:'📖', log:'picked out a book', variety:true, likes:'bookish' },
-  paint:  { obj:()=>'easel',  need:'fun',     rate:2.40, cap:90, verb:'Painting',           icon:'🎨', log:'started painting', variety:true },
-  guitar: { obj:()=>'guitar', need:'fun',     rate:3.00, cap:90, verb:'Playing guitar',     icon:'🎸', log:'picked up the guitar', variety:true, likes:'playful' },
-  arcade: { obj:()=>'arcade', need:'fun',     rate:3.60, cap:94, verb:'Playing the arcade', icon:'🕹️', log:'fired up the arcade cabinet', variety:true, likes:'playful' },
-  stretch:{ obj:()=>'mat',    need:'fun',     rate:1.90, cap:76, verb:'Stretching',         icon:'🧘', log:'unrolled the mat', variety:true,
-            costs:{ hygiene:0.55 }, gains:{ energy:0.35 } },
-  online: { obj:()=>'desk',   need:'social',  rate:2.20, cap:80, verb:'Messaging friends',  icon:'💬', log:'sat down at the desk', variety:true, adultOnly:true },
-  relax:  { obj:()=>'sofa',   need:'fun',     rate:0.70, cap:58, verb:'Sitting around',     icon:'🌿', log:'flopped on the sofa', idle:true, variety:true },
-  chat:   { social:true,                                         verb:'Chatting',           icon:'💭' },
+  sleep:  { obj:s=>s.bedId,   need:'energy',  rate:0.30, cap:99, verb:'Sleeping',           log:'went to bed' },
+  eat:    { obj:()=>'table',  need:'hunger',  rate:3.40, cap:98, verb:'Eating',             log:'sat down to eat' },
+  cook:   { obj:()=>'stove',  fixed:22,                          verb:'Cooking',            log:'started cooking', then:'eat' },
+  snack:  { obj:()=>'fridge', need:'hunger',  rate:4.50, cap:52, verb:'Raiding the fridge', log:'grabbed a snack', guest:true },
+  toilet: { obj:()=>'toilet', need:'bladder', rate:11.0, cap:99, verb:'In the bathroom',    log:'went to the bathroom' },
+  shower: { obj:()=>'shower', need:'hygiene', rate:5.00, cap:98, verb:'Taking a shower',    log:'got in the shower' },
+  bath:   { obj:()=>'tub',    need:'hygiene', rate:3.20, cap:99, verb:'Soaking in the tub', log:'ran a bath', variety:true,
+            gains:{ fun:0.8 }, likes:'lazy' },
+  wash:   { obj:()=>'sink',   need:'hygiene', rate:7.00, cap:55, verb:'Washing up',         log:'washed up' },
+  // Hobbies run for a session (in-world minutes, give or take) rather than until fun is
+  // full: fun tops up in a few minutes, and people were bouncing between hobbies every
+  // couple of seconds, or skipping them for the sofa.
+  tv:     { obj:()=>'sofa',   need:'fun',     rate:2.60, session:45, verb:'Watching TV',        log:'put the TV on', variety:true,
+            likes:'lazy', guest:true, group:true, join:'in front of the TV', clash:'game' },
+  game:   { obj:()=>'sofa',   need:'fun',     rate:3.20, session:45, verb:'Playing video games', log:'grabbed a controller', variety:true,
+            likes:'playful', guest:true, group:true, join:'for a game', clash:'tv' },
+  cards:  { obj:()=>'table',  need:'fun',     rate:2.40, session:40, verb:'Playing cards',      log:'dealt a hand of solitaire', variety:true,
+            guest:true, group:true, join:'for cards' },
+  dance:  { obj:()=>'record', need:'fun',     rate:3.00, session:25, verb:'Dancing',            log:'put a record on', variety:true,
+            costs:{ energy:0.10, hygiene:0.25 }, likes:'sociable', guest:true, group:true, join:'dancing' },
+  fish:   { obj:()=>'tank',   need:'fun',     rate:1.50, session:20, verb:'Watching the fish',  log:'went to look at the fish', variety:true,
+            likes:'loner', guest:true },
+  read:   { obj:()=>'chair1', need:'fun',     rate:2.20, session:50, verb:'Reading',            log:'curled up with a book', variety:true, likes:'bookish' },
+  paint:  { obj:()=>'easel',  need:'fun',     rate:2.40, session:45, verb:'Painting',           log:'started painting', variety:true },
+  guitar: { obj:()=>'guitar', need:'fun',     rate:3.00, session:35, verb:'Playing guitar',     log:'picked up the guitar', variety:true, likes:'playful' },
+  arcade: { obj:()=>'arcade', need:'fun',     rate:3.60, session:30, verb:'Playing the arcade', log:'fired up the arcade cabinet', variety:true,
+            likes:'playful', guest:true },
+  stretch:{ obj:()=>'mat',    need:'fun',     rate:1.90, session:25, verb:'Stretching',         log:'unrolled the mat', variety:true,
+            costs:{ hygiene:0.40 }, gains:{ energy:0.35 } },
+  online: { obj:()=>'desk',   need:'social',  rate:2.20, cap:80, verb:'Messaging friends',  log:'sat down at the desk', variety:true },
+  relax:  { obj:s=>(s.actKey === 'relax' && s.held) || nearestSeat(s),
+            need:'fun',     rate:0.70, cap:58, verb:'Sitting around',     log:'sat down for a bit', idle:true, variety:true, guest:true },
+  chat:   { social:true,                                         verb:'Chatting', guest:true },
 };
 
 /* Walls. 'N:x:y' sits on the north edge of tile (x,y), 'W:x:y' on its west edge.
@@ -254,8 +283,12 @@ const ACTS = {
 const walls = new Set();
 for (let x = 0; x < COLS; x++) walls.add(`N:${x}:0`);
 for (let y = 0; y < ROWS; y++) walls.add(`W:0:${y}`);
-for (let x = 0; x < COLS; x++) if (x !== 2 && x !== 7) walls.add(`N:${x}:4`);
-for (let y = 0; y < 4; y++) if (y !== 2) walls.add(`W:5:${y}`);
+for (let x = 0; x < COLS; x++) if (x !== 4 && x !== 7) walls.add(`N:${x}:4`);
+for (let y = 0; y < 4; y++) if (y !== 2) walls.add(`W:6:${y}`);
+// The front door is painted onto the west wall rather than cut through it: the street
+// isn't part of the map, so visitors appear on the doormat and leave from it.
+const DOOR = [0, 8];
+const DOORWAYS = ['4,3', '4,4', '7,3', '7,4', '5,2', '6,2', '0,8'];
 
 let wallMode = 'cutaway';
 
@@ -276,6 +309,7 @@ function canCross(fx, fy, tx, ty) {
 }
 
 function approachTiles(o) {
+  if (o.use) return o.use.map(([dx, dy]) => [o.x + dx, o.y + dy]).filter(([x, y]) => free(x, y));
   const out = [], seen = new Set();
   for (let i = 0; i < o.w; i++)
     for (let j = 0; j < o.h; j++) {
@@ -332,7 +366,6 @@ const FEMALE_NAMES = ['Ada','Bea','Cleo','Dot','Elsie','Fern','Greta','Hazel','I
                       'Kira','Lark','Maeve','Nell','Opal','Pearl','Romy','Sage','Thea','Wren'];
 const pick = a => a[Math.floor(Math.random()*a.length)];
 const randomName = g => pick(g === 'm' ? MALE_NAMES : FEMALE_NAMES);
-const BABY_NEEDS = ['hunger','energy','hygiene','social'];
 
 function makeSim(i, name, gender, traitKeys, colors, opts = {}) {
   const needs = {};
@@ -350,15 +383,11 @@ function makeSim(i, name, gender, traitKeys, colors, opts = {}) {
     chatMul *= t.chat || 1;
     idleMul *= t.idle || 1;
   }
-  const stage = opts.stage || 'adult';
   return { i, name, gender, needs, traits, traitKeys, decayMul, weightMul, shift, chatMul, idleMul,
-           colors, tx: opts.tx ?? (3 + i*2), ty: opts.ty ?? 6, path: [], act: null, actKey: null,
-           timer: 0, bob: 0, held: null, emotion: null,
+           colors, tx: opts.tx ?? (4 + i), ty: opts.ty ?? 7, path: [], act: null, actKey: null,
+           timer: 0, bob: 0, held: null, seat: null, emotion: null,
            recent: {}, dirx: 1, diry: 0, chatTarget: null,
-           stage, mobile: stage !== 'baby', ageDays: opts.ageDays || 0,
-           bedId: opts.bedId || ('bed' + i),
-           scale: stage === 'child' ? 0.74 : 1,
-           showNeeds: stage === 'baby' ? BABY_NEEDS : NEEDS.map(n => n.k) };
+           stage: opts.stage || 'adult', bedId: 'bed' + i };
 }
 
 const OPPOSITE = { neat:'slob', slob:'neat', sociable:'loner', loner:'sociable',
@@ -394,7 +423,10 @@ function loadSave() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const d = JSON.parse(raw);
-    return d && d.v === 4 && Array.isArray(d.people) && d.people.length >= 2 ? d : null;
+    if (!d || (d.v !== 4 && d.v !== 5) || !Array.isArray(d.people)) return null;
+    // v4 households could include children; v5 is just the two adults who live here
+    d.people = d.people.filter(p => !p.stage || p.stage === 'adult').slice(0, 2);
+    return d.people.length === 2 ? d : null;
   } catch (e) { return null; }
 }
 
@@ -402,9 +434,11 @@ const saved = loadSave();
 
 function restorePerson(d, i) {
   const g = d.gender || (i ? 'f' : 'm');
+  // furniture moves between versions, so a saved spot can now be inside a sofa
+  const ok = Number.isFinite(d.tx) && Number.isFinite(d.ty) && free(Math.round(d.tx), Math.round(d.ty));
   const s = makeSim(i, d.name || randomName(g), g, d.traits,
                     Object.assign(paletteFor(g, i), d.colors || {}),
-                    { stage:d.stage, bedId:d.bedId, ageDays:d.ageDays, tx:d.tx, ty:d.ty });
+                    ok ? { tx:d.tx, ty:d.ty } : {});
   for (const n of NEEDS)
     if (typeof d.needs?.[n.k] === 'number') s.needs[n.k] = d.needs[n.k];
   s.emotion = d.emotion || null;
@@ -413,21 +447,51 @@ function restorePerson(d, i) {
 
 function newHousehold() {
   return [
-    makeSim(0, randomName('m'), 'm', drawTraits(), paletteFor('m', 0), { bedId:'bed0' }),
-    makeSim(1, randomName('f'), 'f', drawTraits(), paletteFor('f', 1), { bedId:'bed1' }),
+    makeSim(0, randomName('m'), 'm', drawTraits(), paletteFor('m', 0)),
+    makeSim(1, randomName('f'), 'f', drawTraits(), paletteFor('f', 1)),
   ];
 }
 
 const people = saved ? saved.people.map(restorePerson) : newHousehold();
 
 let rel = saved ? saved.rel : 12;
-const family = saved ? { partners: !!(saved.family && saved.family.partners),
-                         born: (saved.family && saved.family.born) || 0 }
-                     : { partners: false, born: 0 };
-const chat = { on:false, timer:0, mode:'chat', a:null, b:null };
+const family = { partners: !!(saved && saved.family && saved.family.partners) };
 
-const adults = () => people.filter(p => p.stage === 'adult');
-const babyIn = () => people.find(p => p.stage === 'baby') || null;
+/* ---------- friends and neighbours ----------
+   A fixed circle of four, made once per household and saved, so the same faces keep
+   coming round. Visitors run the same brain with a shorter list of things to do. */
+const FROM = ['from next door', 'from upstairs', 'from across the hall', 'from work', 'from the café'];
+function makeFriends() {
+  const used = new Set(people.map(p => p.name));
+  return FROM.slice().sort(() => Math.random() - 0.5).slice(0, 4).map((from, k) => {
+    const g = Math.random() < 0.5 ? 'm' : 'f';
+    let name = randomName(g);
+    while (used.has(name)) name = randomName(g);
+    used.add(name);
+    return { name, gender: g, traits: drawTraits(), colors: paletteFor(g, k + 2), from };
+  });
+}
+const friends = saved && Array.isArray(saved.friends) && saved.friends.length ? saved.friends : makeFriends();
+const guests = [];
+let lastVisit = saved ? (saved.lastVisit ?? -1e9) : -1e9;
+const everyone = () => guests.length ? people.concat(guests) : people;
+
+function makeGuest(f, k) {
+  const s = makeSim(10 + k, f.name, f.gender, f.traits, f.colors, { stage:'guest', tx:DOOR[0], ty:DOOR[1] });
+  // they've come round to hang out: they ate, washed and slept at home
+  for (const n of ['energy', 'bladder', 'hygiene']) { s.needs[n] = 100; s.decayMul[n] = 0; }
+  s.needs.hunger = 70 + Math.random() * 25;
+  s.needs.fun = 25 + Math.random() * 30;
+  s.needs.social = 20 + Math.random() * 30;
+  s.friend = f;
+  s.leaveAt = minutes + 100 + Math.random() * 110;
+  return s;
+}
+
+/* conversations: several can run at once now there can be four people in the flat */
+const convs = [];
+const convOf = s => convs.find(c => c.a === s || c.b === s) || null;
+const residents = c => c.a.stage === 'adult' && c.b.stage === 'adult';
 
 let minutes = saved ? saved.minutes : 7*60;
 let day = saved ? saved.day : 1;
@@ -472,24 +536,43 @@ function nightFor(s) {
 
 function taken(objId, self) {
   const o = byId(objId);
-  return people.filter(s => s !== self && s.held === objId).length >= o.cap;
+  return everyone().filter(s => s !== self && s.held === objId).length >= o.cap;
 }
+// someone else is on the object doing something that can't share it (TV vs. video games)
+function clashes(key, s) {
+  const a = ACTS[key];
+  return !!a.clash && everyone().some(p => p !== s && p.held === a.obj(s) && p.actKey === a.clash);
+}
+// everyone else who's already arrived and doing this
+const doingWith = (key, s) => everyone().filter(p => p !== s && p.actKey === key && p.held && !p.path.length);
+
+function nearestSeat(s) {
+  let best = 'sofa', bestD = 1e9;
+  for (const id of SEATS) {
+    if (taken(id, s)) continue;
+    const o = byId(id), d = Math.abs(o.x - s.tx) + Math.abs(o.y - s.ty);
+    if (d < bestD) { bestD = d; best = id; }
+  }
+  return best;
+}
+
+// who they'd talk to: whoever they're already talking to, otherwise partnerFor's pick
+const talkTo = s => (convOf(s) && s.chatTarget) || partnerFor(s);
 
 function urgency(key, s) {
   const a = ACTS[key];
   const m = moodOf(s);
   if (a.social) {
-    const other = partnerFor(s);
+    const other = talkTo(s);
     if (!other) return 0;
     const pair = s.stage === 'adult' && other.stage === 'adult';
     let u = Math.pow(1 - s.needs.social/100, 2) * 100 * NEED('social').weight * s.weightMul.social;
-    return Math.max(0, u * s.chatMul * (pair ? 0.6 + rel/140 : 0.9) + m.chat);
-  }
-  if (a.tend) {
-    const b = babyIn();
-    if (!b || s.stage !== 'adult') return 0;
-    const worst = Math.min(...BABY_NEEDS.map(k => b.needs[k]));
-    return Math.pow(1 - worst/100, 2) * 100 * 1.9;
+    // company's over: catching up with a visitor beats another chat with the flatmate
+    const visit = s.stage !== other.stage ? 14 : 0;
+    // mood only pulls toward talking while there's some appetite for it — otherwise an
+    // affectionate couple, fully caught up, chatted all day instead of doing anything else
+    const pull = m.chat * Math.min(1, (100 - s.needs.social) / 40);
+    return Math.max(0, u * s.chatMul * (pair ? 0.6 + rel/140 : 0.9) + pull + visit);
   }
   if (a.idle) {
     let u = 5 * s.idleMul;
@@ -498,21 +581,35 @@ function urgency(key, s) {
   }
   if (key === 'cook' || key === 'eat') {
     // without this, someone full at the table re-picks eating every tick, since it ends the moment it starts
-    if (s.needs.hunger >= ACTS.eat.cap - 1) return 0;
+    if (s.needs.hunger >= ACTS.eat.cap - 1) return -Infinity;
     return Math.pow(1 - s.needs.hunger/100, 2) * 100 * 1.20 * s.weightMul.hunger * 1.05;
   }
 
+  // Nothing to gain means not a candidate at all. At 0 it could still win when nothing
+  // else was needed either — the nearest full need came out on top, and someone sat on
+  // the toilet at 100% bladder for an hour because they happened to be next to it.
   const v = s.needs[a.need];
-  if (v >= a.cap - 1) return 0;
+  // ...except sleep at night: rested or not, you stay in bed till morning — otherwise they
+  // got up at 98% energy, found it was still night, and went back to bed every few minutes
+  const bedtime = key === 'sleep' && nightFor(s);
+  if (!a.session && !bedtime && v >= a.cap - 1) return -Infinity;
   let u = Math.pow(1 - v/100, 2) * 100 * NEED(a.need).weight * s.weightMul[a.need];
-  if (key === 'sleep') u += (nightFor(s) ? 30 : -14) + m.sleep;
+  // hobbies are what free time is for: open even when fun is full, and ahead of sitting around
+  if (a.session) u = Math.max(u, LEISURE);
+  // a nap takes real tiredness now that a night's sleep lasts till morning
+  if (key === 'sleep') u += (nightFor(s) ? 30 : -28) + m.sleep;
   if (key === 'snack') u *= 0.72;
   if (key === 'wash') u *= 0.6;
+  if (key === 'bath') u *= 0.8;           // a soak is a treat, not the usual way to get clean
   if (a.likes && s.traitKeys.includes(a.likes)) u += 15;
+  // joining in beats starting something alone — this is what gets a game of cards going
+  if (a.group && doingWith(key, s).length) u += 16;
   // doing the same thing again soon after is less appealing than trying something else
-  if (a.variety && minutes - (s.recent[key] ?? -1e9) < 260) u -= 26;
+  // (but not the thing they're in the middle of, or they'd talk themselves out of it)
+  if (a.variety && key !== s.actKey && minutes - (s.recent[key] ?? -1e9) < 260) u -= 26;
   return u;
 }
+const LEISURE = 10;
 
 function distanceTo(key, s) {
   if (ACTS[key].social) {
@@ -529,53 +626,62 @@ function targetTiles(key, s) {
     const o = s.chatTarget || partnerFor(s);
     return o ? neighbourTiles(o.tx, o.ty) : [];
   }
-  return approachTiles(byId(ACTS[key].obj(s)));
+  const o = byId(ACTS[key].obj(s)), tiles = approachTiles(o);
+  // leave the spots other users are standing on (or heading for) — two dancers, two tiles
+  const mine = new Set(everyone().filter(p => p !== s && p.held === o.id).map(p => {
+    const t = p.path.length ? p.path[p.path.length - 1] : [Math.round(p.tx), Math.round(p.ty)];
+    return t[0] + ',' + t[1];
+  }));
+  const open = tiles.filter(t => !mine.has(t[0] + ',' + t[1]));
+  return open.length ? open : tiles;
 }
 
 function bestAction(s) {
   let best = 'relax', bestScore = -Infinity;
   for (const key of Object.keys(ACTS)) {
     const a = ACTS[key];
-    if (a.adultOnly && s.stage !== 'adult') continue;
-    if (!a.social && taken(a.obj(s), s)) continue;
+    if (s.stage === 'guest' && !a.guest) continue;
+    if (!a.social && (taken(a.obj(s), s) || clashes(key, s))) continue;
     const score = urgency(key, s) - distanceTo(key, s) * 1.0;
     if (score > bestScore) { bestScore = score; best = key; }
   }
   return { key: best, score: bestScore };
 }
 
-function endAct(s) { s.act = null; s.actKey = null; s.held = null; s.path = []; }
+function endAct(s) { s.act = null; s.actKey = null; s.held = null; s.seat = null; s.path = []; }
 
-function startAct(key, s, quiet) {
+function startAct(key, s) {
   const a = ACTS[key];
   s.actKey = key; s.act = a;
   s.recent[key] = minutes;
-  s.timer = a.fixed || 0;
+  s.timer = a.fixed || (a.session ? a.session * (0.7 + Math.random() * 0.6) : 0);
   if (a.social) s.chatTarget = partnerFor(s);
   s.held = a.social ? null : a.obj(s);
   s.path = findPath(s.tx, s.ty, targetTiles(key, s)) || [];
-  if (!quiet && a.log) addLog(`${s.name} ${a.log}`);
+  if (a.log) {
+    const others = a.group ? doingWith(key, s) : [];
+    addLog(others.length ? `${s.name} joined ${others[0].name} ${a.join}` : `${s.name} ${a.log}`);
+  }
 }
 
-function endChat(natural) {
-  const wasArgument = chat.mode === 'argue';
-  const pair = [chat.a, chat.b].filter(Boolean);
-  const couple = pair.length === 2 && pair.every(p => p.stage === 'adult');
-  chat.on = false;
-  for (const s of people) if (s.actKey === 'chat') endAct(s);
-  chat.mode = 'chat'; chat.a = chat.b = null;
+function endConv(c, natural) {
+  const i = convs.indexOf(c);
+  if (i < 0) return;
+  convs.splice(i, 1);
+  for (const s of [c.a, c.b]) if (s.actKey === 'chat') endAct(s);
   if (!natural) return;
-  if (wasArgument) {
-    for (const s of pair) setEmotion(s, 'annoyed', 110);
-    addLog('The argument fizzled out');
+  const home = residents(c);
+  if (c.mode === 'argue') {
+    for (const s of [c.a, c.b]) setEmotion(s, 'annoyed', 110);
+    addLog(`${c.a.name} and ${c.b.name}'s argument fizzled out`);
     return;
   }
-  if (rel > 52) for (const s of pair) setEmotion(s, 'affectionate', 150);
-  if (couple && !family.partners && rel >= 84) {
+  if (home && rel > 52) for (const s of [c.a, c.b]) setEmotion(s, 'affectionate', 150);
+  if (home && !family.partners && rel >= 84) {
     family.partners = true;
-    addLog(`${pair[0].name} and ${pair[1].name} are a couple now`);
+    addLog(`${c.a.name} and ${c.b.name} are a couple now`);
   } else {
-    addLog('They wrapped up their conversation');
+    addLog(`${c.a.name} and ${c.b.name} wrapped up their conversation`);
   }
 }
 
@@ -584,17 +690,20 @@ function think(s) {
   if (!s.actKey) { startAct(key, s); return; }
   if (key === s.actKey) return;
   const cur = urgency(s.actKey, s) - distanceTo(s.actKey, s) * 1.0;
-  const margin = s.actKey === 'sleep' ? 62 : chat.on ? 42 : 26;
+  const c = convOf(s);
+  const margin = s.actKey === 'sleep' ? 62 : c ? 42 : 26;
   if (score - cur > margin) {
-    if (chat.on && s.actKey === 'chat') endChat(false);
+    if (c) endConv(c, false);
     startAct(key, s);
   }
 }
 
+const gone = p => !p || p.leaving || !everyone().includes(p);
+
 function tryChat(s) {
   const other = s.chatTarget;
-  if (!other) { endAct(s); return; }
-  const busy = other.actKey && other.actKey !== 'chat' && urgency(other.actKey, other) > 45;
+  if (gone(other)) { endAct(s); return; }
+  const busy = convOf(other) || (other.actKey && other.actKey !== 'chat' && urgency(other.actKey, other) > 45);
   if (other.actKey === 'sleep' || busy) {
     addLog(`${s.name} couldn't get ${other.name}'s attention`);
     endAct(s);
@@ -603,63 +712,56 @@ function tryChat(s) {
     return;
   }
   if (other.actKey !== 'chat') { endAct(other); other.actKey = 'chat'; other.act = ACTS.chat; }
+  other.chatTarget = s;
 
   // whether this goes well depends on how both of them feel and where they stand
-  const relPull = rel < 30 ? 0.12 : rel > 70 ? -0.15 : 0;
+  const home = s.stage === 'adult' && other.stage === 'adult';
+  const relPull = !home ? 0 : rel < 30 ? 0.12 : rel > 70 ? -0.15 : 0;
   let p = Math.min(0.7, Math.max(0, 0.06 + moodOf(s).argue + moodOf(other).argue + relPull));
-  if (family.partners) p *= 0.5;
-  if (s.stage !== 'adult' || other.stage !== 'adult') p *= 0.4;
-  chat.mode = Math.random() < p ? 'argue' : 'chat';
-  chat.a = s; chat.b = other;
-  chat.on = true;
-  chat.timer = chat.mode === 'argue' ? 14 : 34;
-  addLog(chat.mode === 'argue'
+  if (home && family.partners) p *= 0.5;
+  if (!home) p *= 0.4;                     // everyone minds their manners with company
+  const c = { a: s, b: other, mode: Math.random() < p ? 'argue' : 'chat' };
+  c.timer = c.mode === 'argue' ? 14 : 34;
+  convs.push(c);
+  addLog(c.mode === 'argue'
     ? `${s.name} and ${other.name} started bickering`
     : `${s.name} and ${other.name} got talking`);
 }
 
 /* ---------- tick ---------- */
 
+function moveAlong(s, dtMin) {
+  let move = 1.6 * dtMin;
+  while (move > 0 && s.path.length) {
+    const [gx, gy] = s.path[0];
+    const dx = gx - s.tx, dy = gy - s.ty, d = Math.hypot(dx, dy);
+    if (d > 0.001) { s.dirx = dx/d; s.diry = dy/d; }
+    if (d <= move) { s.tx = gx; s.ty = gy; s.path.shift(); move -= d; }
+    else { s.tx += dx/d*move; s.ty += dy/d*move; move = 0; }
+  }
+  s.bob += dtMin * 2.4;
+}
+
 function stepSim(s, dtMin) {
   for (const n of NEEDS)
     s.needs[n.k] = Math.max(0, s.needs[n.k] - n.decay * s.decayMul[n.k] * dtMin / 60);
 
-  if (s.path.length) {
-    let move = 1.6 * dtMin;
-    while (move > 0 && s.path.length) {
-      const [gx, gy] = s.path[0];
-      const dx = gx - s.tx, dy = gy - s.ty, d = Math.hypot(dx, dy);
-      if (d > 0.001) { s.dirx = dx/d; s.diry = dy/d; }
-      if (d <= move) { s.tx = gx; s.ty = gy; s.path.shift(); move -= d; }
-      else { s.tx += dx/d*move; s.ty += dy/d*move; move = 0; }
-    }
-    s.bob += dtMin * 2.4;
-    think(s);
-    return;
-  }
+  if (s.leaving) { moveAlong(s, dtMin); return; }        // a visitor heading for the door
+  if (s.path.length) { moveAlong(s, dtMin); think(s); return; }
 
   const a = s.act;
   if (!a) { think(s); return; }
 
   if (a.social) {
-    if (chat.on) return;                       // gains handled in stepChat
+    if (convOf(s)) return;                     // gains handled in stepConvs
     const other = s.chatTarget;
-    if (!other) { endAct(s); return; }
+    if (gone(other)) { endAct(s); return; }
     const near = Math.abs(other.tx - s.tx) + Math.abs(other.ty - s.ty) <= 1.6;
     if (near) tryChat(s);
     else {
       s.path = findPath(s.tx, s.ty, neighbourTiles(other.tx, other.ty)) || [];
       if (!s.path.length) endAct(s);
     }
-    return;
-  }
-
-  if (a.tend) {
-    const b = babyIn();
-    if (!b) { endAct(s); return; }
-    for (const k of BABY_NEEDS) b.needs[k] = Math.min(100, b.needs[k] + 3.6 * dtMin);
-    s.needs.social = Math.min(100, s.needs.social + 0.9 * dtMin);
-    if (BABY_NEEDS.every(k => b.needs[k] > 88)) endAct(s);
     return;
   }
 
@@ -672,93 +774,114 @@ function stepSim(s, dtMin) {
   s.needs[a.need] = Math.min(100, s.needs[a.need] + a.rate * dtMin);
   for (const k in (a.costs || {})) s.needs[k] = Math.max(0, s.needs[k] - a.costs[k] * dtMin);
   for (const k in (a.gains || {})) s.needs[k] = Math.min(100, s.needs[k] + a.gains[k] * dtMin);
-  if (s.needs[a.need] >= a.cap) {
+  // doing it together counts as time together — and the two who live here grow closer
+  // over it, if more slowly than by talking (this runs once for each of them)
+  const with_ = a.group ? doingWith(s.actKey, s) : [];
+  if (with_.length) {
+    s.needs.social = Math.min(100, s.needs.social + 0.25 * dtMin);
+    if (s.stage === 'adult' && with_.some(p => p.stage === 'adult')) rel = Math.min(100, rel + 0.02 * dtMin);
+  }
+  if (a.session) { if ((s.timer -= dtMin) <= 0) endAct(s); }
+  else if (s.needs[a.need] >= a.cap && !(s.actKey === 'sleep' && nightFor(s))) {
     if (s.actKey === 'sleep') addLog(`${s.name} woke up`);
     endAct(s);
   }
   think(s);
 }
 
-function stepChat(dtMin) {
-  if (!chat.on) return;
-  const pair = [chat.a, chat.b].filter(Boolean);
-  const couple = pair.length === 2 && pair.every(p => p.stage === 'adult');
-  if (chat.mode === 'argue') {
-    for (const s of pair) {
-      s.needs.social = Math.min(100, s.needs.social + 0.8 * dtMin);
-      s.needs.fun = Math.max(0, s.needs.fun - 1.1 * dtMin);
+function stepConvs(dtMin) {
+  for (const c of convs.slice()) {
+    const pair = [c.a, c.b], home = residents(c);
+    if (c.mode === 'argue') {
+      for (const s of pair) {
+        s.needs.social = Math.min(100, s.needs.social + 0.8 * dtMin);
+        s.needs.fun = Math.max(0, s.needs.fun - 1.1 * dtMin);
+      }
+      if (home) rel = Math.max(0, rel - 0.55 * dtMin);
+      c.timer -= dtMin;
+      if (c.timer <= 0) endConv(c, true);
+      continue;
     }
-    if (couple) rel = Math.max(0, rel - 0.55 * dtMin);
-    chat.timer -= dtMin;
-    if (chat.timer <= 0) endChat(true);
-    return;
+    const bonus = home ? (0.8 + rel/120) * (family.partners ? 1.25 : 1) : 1.1;
+    for (const s of pair) {
+      s.needs.social = Math.min(100, s.needs.social + 3.0 * bonus * dtMin);
+      // a little fun, not much: at 0.9 talking covered fun too, and nobody touched the games
+      s.needs.fun = Math.min(100, s.needs.fun + 0.3 * dtMin);
+    }
+    if (home) rel = Math.min(100, rel + 0.30 * dtMin);
+    c.timer -= dtMin;
+    if (c.timer <= 0 || pair.every(s => s.needs.social > 96)) endConv(c, true);
   }
-  const bonus = (0.8 + rel/120) * (family.partners ? 1.25 : 1);
-  for (const s of pair) {
-    s.needs.social = Math.min(100, s.needs.social + 3.0 * bonus * dtMin);
-    s.needs.fun = Math.min(100, s.needs.fun + 0.9 * dtMin);
-  }
-  if (couple) rel = Math.min(100, rel + 0.30 * dtMin);
-  chat.timer -= dtMin;
-  if (chat.timer <= 0 || pair.every(s => s.needs.social > 96)) endChat(true);
 }
 
-// who a Sim goes to talk to: their partner by preference, otherwise whoever is nearest
+// who a Sim goes to talk to: their partner by preference, a visitor if there is one,
+// otherwise whoever is nearest and free
 function partnerFor(s) {
   let best = null, bestD = 1e9;
-  for (const p of people) {
-    if (p === s || !p.mobile || p.actKey === 'sleep') continue;
+  const mine = convOf(s);
+  for (const p of everyone()) {
+    if (p === s || p.leaving || p.actKey === 'sleep') continue;
+    const theirs = convOf(p);
+    if (theirs && theirs !== mine) continue;
     let d = Math.abs(p.tx - s.tx) + Math.abs(p.ty - s.ty);
     if (family.partners && s.stage === 'adult' && p.stage === 'adult') d -= 5;
+    if (s.stage !== p.stage) d -= 4;           // hosts seek out visitors, visitors their hosts
     if (d < bestD) { bestD = d; best = p; }
   }
   return best;
 }
 
-/* ---------- growing up ---------- */
+/* ---------- visitors ---------- */
 
-const BABY_DECAY = { hunger:9.5, energy:7.5, hygiene:8.0, social:7.0 };
+const VISIT_GAP = 300;          // in-world minutes after one visit ends before the next knock
+let doorOpenUntil = 0;          // animT, so the door swings for a moment of real time at any speed
+const openDoor = () => { doorOpenUntil = animT + 1.4; };
 
-function stepBaby(b, dtMin) {
-  for (const k of BABY_NEEDS)
-    b.needs[k] = Math.max(0, b.needs[k] - BABY_DECAY[k] * dtMin / 60);
-  const crib = byId('crib');
-  b.tx = crib.x; b.ty = crib.y;
-}
-
-function haveBaby() {
-  const ad = adults();
-  if (ad.length < 2) return;
-  const g = Math.random() < 0.5 ? 'm' : 'f';
-  const idx = people.length;
-  const b = makeSim(idx, randomName(g), g, drawTraits(), paletteFor(g, idx),
-                    { stage:'baby', bedId:'kidbed' + family.born, tx:4, ty:1 });
-  for (const k of BABY_NEEDS) b.needs[k] = 80;
-  people.push(b);
-  family.born++;
-  addLog(`${ad[0].name} and ${ad[1].name} had a baby — ${b.name}`);
-  buildCards();
-}
-
-function growUp(b) {
-  b.stage = 'child';
-  b.mobile = true;
-  b.scale = 0.74;
-  b.showNeeds = NEEDS.map(n => n.k);
-  for (const n of NEEDS) b.needs[n.k] = Math.max(b.needs[n.k], 55);
-  b.tx = 4; b.ty = 1;
-  addLog(`${b.name} started walking`);
-  buildCards();
-}
-
-// once a day: everyone ages, and a settled couple may have a baby
-function familyTick() {
-  for (const p of people) {
-    if (p.stage !== 'adult') p.ageDays++;
-    if (p.stage === 'baby' && p.ageDays >= 3) growUp(p);
+function visitTick(dtMin) {
+  for (const g of guests.slice()) {
+    if (!g.leaving && (minutes >= g.leaveAt || hour() >= 22.5 || hour() < 6)) {
+      const c = convOf(g);
+      if (c) endConv(c, false);
+      endAct(g);
+      g.leaving = true;
+      g.path = findPath(g.tx, g.ty, [DOOR]) || [DOOR.slice()];
+      addLog(`${g.name} said goodbye`);
+    }
+    if (g.leaving && !g.path.length) {
+      guests.splice(guests.indexOf(g), 1);
+      lastVisit = minutes;
+      openDoor();
+    }
   }
-  if (family.partners && rel >= 78 && family.born < 2 && !babyIn() && Math.random() < 0.34)
-    haveBaby();
+  if (guests.length) return;
+
+  const h = hour();
+  if (h < 10 || h > 20 || minutes - lastVisit < VISIT_GAP) return;
+  if (people.every(p => p.actKey === 'sleep')) return;
+  // about one visit a day, more if someone's been messaging friends or is lonely
+  let rate = 1 / 600;
+  if (people.some(p => p.actKey === 'online' && !p.path.length)) rate *= 4;
+  if (people.some(p => p.needs.social < 35)) rate *= 1.5;
+  if (Math.random() > rate * dtMin) return;
+
+  const who = friends.slice().sort(() => Math.random() - 0.5).slice(0, Math.random() < 0.3 ? 2 : 1);
+  who.forEach((f, k) => guests.push(makeGuest(f, k)));
+  lastVisit = minutes;
+  openDoor();
+  addLog(who.length === 2 ? `${who[0].name} and ${who[1].name} came over`
+                          : `${who[0].name} ${who[0].from} dropped by`);
+  for (const g of guests) think(g);
+}
+
+// one step of the whole world: the live loop, the catch-up replay and verify.js all use it
+function tick(dtMin) {
+  const before = minutes;
+  minutes += dtMin;
+  if (Math.floor(minutes/1440) > Math.floor(before/1440)) { day++; addLog('A new day'); }
+  visitTick(dtMin);
+  for (const s of everyone()) stepSim(s, dtMin);
+  stepConvs(dtMin);
+  rel = Math.max(0, rel - 0.0016 * dtMin);
 }
 
 /* ---------- rendering ----------
@@ -1090,7 +1213,11 @@ const IPAL = { k:'#2b2238', w:'#ffffff', g:'#8e95a6', G:'#4f9e5a', r:'#d9534f', 
 const ICON = {};
 const ICON_ART = {
   zzz:      ['....bbbb.','......b..','.....b...','....bbbb.','bbb......','..b......','.b.......','bbb......','.........'],
-  bottle:   ['....rr...','...gggg..','...gBBg..','...gBBg..','...gBBg..','...gBBg..','...gBBg..','...gggg..','.........'],
+  tub:      ['.........','..B.B....','.B.B.B...','.........','kkkkkkkkk','kBBBBBBBk','.kwwwwwk.','..k...k..','.........'],
+  pad:      ['.........','.........','.kkkkkkk.','kkwkkkrkk','kwwwkrkyk','kkwkkkbkk','kkkk.kkkk','.kk...kk.','.........'],
+  cards:    ['kkkkkk...','kwwkkkkkk','kwrkwwwwk','kwwkwkkwk','kwwkwkkwk','kwwkwwwwk','kkkkwwwwk','...kwwwwk','...kkkkkk'],
+  disc:     ['..kkkkk..','.kgkkkkk.','kgkkkkkkk','kkkrrrkkk','kkkrwrkkk','kkkrrrkkk','kkkkkkkkk','.kkkkkkk.','..kkkkk..'],
+  fish:     ['.........','.........','..oooo..o','.oooooooo','okoooooo.','.oooooooo','..oooo..o','.........','.........'],
   plate:    ['.........','...o.r...','..oroGr..','.ggggggg.','.gwwwwwg.','..gwwwg..','...ggg...','.........','.........'],
   pan:      ['...g.g...','....g....','.........','.kkkkk...','kkwwwkk..','kkwyykknn','kkwwwkk..','.kkkkk...','.........'],
   sandwich: ['.........','.........','..NNNNN..','.NNNNNNN.','.GGGGGGG.','.rrrrrrr.','.NNNNNNN.','..NNNNN..','.........'],
@@ -1131,14 +1258,9 @@ const PARTICLE = {
    mirrored), every pose and every face, in whatever colours they happen to have. */
 
 const SW = 18, SH = 30, SAX = 9;         // anchor column: feet (or lap) are centred on it
-const DIMS = {
-  adult: { hw:10, hh:9, bw:8, bh:6, lh:4, e0:4, e1:7, ey:5 },
-  child: { hw:8,  hh:8, bw:6, bh:4, lh:3, e0:3, e1:6, ey:4 },
-  baby:  { hw:8,  hh:7, bw:6, bh:4, lh:3, e0:2, e1:5, ey:3 },
-};
+const D = { hw:10, hh:9, bw:8, bh:6, lh:4, e0:4, e1:7, ey:5 };   // head, body and leg sizes, eye columns
 
-function buildPerson(c, gender, stage, pose, fr, back, face) {
-  const D = DIMS[stage] || DIMS.adult;
+function buildPerson(c, gender, pose, fr, back, face) {
   const g = new Uint32Array(SW * SH);
   const set = (x, y, v) => { if (x >= 0 && y >= 0 && x < SW && y < SH) g[y * SW + x] = v; };
   const rect = (x, y, w, h, v) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, v); };
@@ -1153,7 +1275,7 @@ function buildPerson(c, gender, stage, pose, fr, back, face) {
     shoe:C('#3b2d2a'), eye:C('#231a2c'), mouth:C('#8e3f45'), blush:C('#f09a98'), tear:C('#8fd0f0'),
     gtr:C('#c98a3e'), gtrD:C('#6a4028'),
   };
-  const fem = gender === 'f', onlyHead = pose === 'head', baby = stage === 'baby';
+  const fem = gender === 'f', onlyHead = pose === 'head';
   const sit = pose === 'sit' || pose === 'sitback';
   const cx = 9, hx = cx - D.hw / 2, bx = cx - D.bw / 2;
   let headTop, bodyTop = 0, legTop = 0, ay;
@@ -1163,7 +1285,7 @@ function buildPerson(c, gender, stage, pose, fr, back, face) {
     const fy = sit ? 24 : 25;               // lap row when seated, sole row when standing
     ay = fy;
     legTop = sit ? 24 : fy - D.lh;
-    const up = pose === 'walk' && (fr & 1) ? 1 : 0;   // bob up on the passing frames
+    const up = (pose === 'walk' || pose === 'dance') && (fr & 1) ? 1 : 0;   // bob up on the passing frames
     bodyTop = legTop - D.bh - up;
     headTop = bodyTop - D.hh;
 
@@ -1211,6 +1333,11 @@ function buildPerson(c, gender, stage, pose, fr, back, face) {
       for (let i = 0; i < 6; i++) set(bx + 4 + i, gy + 1 - (i >> 1), K.gtrD);
       set(bx + 2 + (fr & 1), gy + 3, K.sk);                        // strumming
       set(bx + 7, gy - 1, K.sk);
+    } else if (pose === 'dance') {
+      // one arm punched up at a time, swapping on each beat
+      const upX = fr & 1 ? R : L;
+      arm(fr & 1 ? L : R, 0);
+      for (let y = headTop + 2; y <= bodyTop + 1; y++) set(upX, y, y >= bodyTop ? K.shS : K.sk);
     } else {
       let ll = armLen, rl = armLen, ra = 0;
       if (pose === 'walk') { if (fr === 1) { ll++; rl--; } else if (fr === 3) { rl++; ll--; } }
@@ -1224,9 +1351,7 @@ function buildPerson(c, gender, stage, pose, fr, back, face) {
   for (const [x, y] of [[hx, headTop], [hx + D.hw - 1, headTop], [hx, headTop + D.hh - 1], [hx + D.hw - 1, headTop + D.hh - 1]])
     set(x, y, 0);
   rect(hx + 1, headTop + D.hh - 1, D.hw - 2, 1, K.skS);
-  if (baby) {
-    set(cx - 1, headTop, K.hr); set(cx, headTop, K.hr); set(cx, headTop - 1, K.hr);
-  } else if (back) {
+  if (back) {
     rect(hx + 1, headTop, D.hw - 2, 1, K.hr);
     rect(hx, headTop + 1, D.hw, D.hh - 2, K.hr);
     if (fem) rect(hx + 1, headTop + D.hh - 1, D.hw - 2, 4, K.hr);   // long hair down the back
@@ -1274,13 +1399,13 @@ function buildPerson(c, gender, stage, pose, fr, back, face) {
 
 const spriteMemo = new Map();
 function personSprite(s, pose, fr, back, face) {
-  if (pose !== 'walk' && pose !== 'use' && pose !== 'talk' && pose !== 'stretch' && pose !== 'guitar') fr = 0;
+  if (!['walk', 'use', 'talk', 'stretch', 'guitar', 'dance'].includes(pose)) fr = 0;
   const c = s.colors;
-  const key = [c.skin, c.hair, c.shirt, c.pants, s.gender, s.stage, pose, fr, back ? 1 : 0, back ? '' : face].join('|');
+  const key = [c.skin, c.hair, c.shirt, c.pants, s.gender, pose, fr, back ? 1 : 0, back ? '' : face].join('|');
   let sp = spriteMemo.get(key);
   if (!sp) {
     if (spriteMemo.size > 800) spriteMemo.clear();
-    sp = buildPerson(c, s.gender, s.stage, pose, fr, back, face);
+    sp = buildPerson(c, s.gender, pose, fr, back, face);
     spriteMemo.set(key, sp);
   }
   return sp;
@@ -1299,12 +1424,7 @@ function moodFace(s) {
   return m === 'happy' || m === 'affectionate' ? 'happy' : m === 'tired' ? 'tired'
        : m === 'grumpy' || m === 'annoyed' ? 'angry' : m === 'lonely' ? 'sad' : 'content';
 }
-function babyFace(b) {
-  const worst = Math.min(...BABY_NEEDS.map(k => b.needs[k]));
-  return worst > 60 ? 'sleep' : worst > 30 ? 'content' : 'sad';
-}
-
-const inUse = (id, act) => people.some(p => p.held === id && !p.path.length && (!act || p.actKey === act));
+const inUse = (id, act) => everyone().some(p => p.held === id && !p.path.length && (!act || p.actKey === act));
 
 /* ---------- the room ---------- */
 
@@ -1319,9 +1439,9 @@ function floorPx(px, py) {
   if (X < 0 || Y < 0 || X >= 320 || Y >= 320) return 0;
   const gx = X / 32, gy = Y / 32;
 
-  if (gx >= 5.25 && gx < 5.95 && gy >= 1.15 && gy < 1.8)            // bath mat
+  if (gx >= 8.15 && gx < 8.85 && gy >= 1.1 && gy < 1.85)            // bath mat, by the tub
     return C((Y >> 1) & 1 ? '#8fc6d8' : '#a5d4e2');
-  if (gx >= 5 && gy < 4) {                                           // bathroom: small square tiles
+  if (gx >= 6 && gy < 4) {                                           // bathroom: small square tiles
     if ((X & 15) < 2 || (Y & 15) < 2) return C('#9eb2ba');
     return C((((X >> 4) + (Y >> 4)) & 1) ? '#dce8ec' : '#cddde3');
   }
@@ -1329,17 +1449,24 @@ function floorPx(px, py) {
     const h = hash(px, py);
     return C(h < 0.1 ? '#a8866c' : h > 0.93 ? '#c9a78b' : '#b8957a');
   }
-  if (gx < 4 && gy < 7)                                              // kitchen lino
+  if (gx < 2 && gy >= 8) {                                           // entry: slate, doormat at the door
+    if (gx >= 0.1 && gx < 0.75 && gy >= 8.12 && gy < 8.88)
+      return C(gx < 0.18 || gx >= 0.67 || gy < 8.2 || gy >= 8.8 ? '#5a3f2c' : (X & 1) ? '#9a7248' : '#8a6440');
+    if ((X & 31) < 2 || (Y & 31) < 2) return C('#4b525e');
+    const t = hash(X >> 5, Y >> 5);
+    return C(hash(px, py) > 0.9 ? '#7d8694' : t < 0.4 ? '#6b7482' : t < 0.7 ? '#737c8a' : '#646c79');
+  }
+  if (gx < 2 && gy < 8)                                              // kitchen lino
     return C((((X >> 4) + (Y >> 4)) & 1) ? '#e8dfc9' : '#b9ccc4');
 
-  const X0 = 176, X1 = 272, Y0 = 208, Y1 = 280;                     // living-room rug
+  const X0 = 168, X1 = 280, Y0 = 204, Y1 = 284;                     // living-room rug
   if (Y >= Y0 + 2 && Y < Y1 - 2 && ((X >= X0 - 4 && X < X0) || (X >= X1 && X < X1 + 4)))
     if ((Y & 3) < 2) return C('#efe2c8');
   if (X >= X0 && X < X1 && Y >= Y0 && Y < Y1) {
     const d = Math.min(X - X0, X1 - 1 - X, Y - Y0, Y1 - 1 - Y);
     if (d < 3 || (d >= 6 && d < 9)) return C('#7d3434');
     if (d < 6) return C('#e0b457');
-    const m = Math.abs(X - 224) + Math.abs(Y - 244);
+    const m = Math.abs(X - (X0 + X1) / 2) + Math.abs(Y - (Y0 + Y1) / 2);
     return C(m % 16 < 3 ? '#e0b457' : m % 16 < 5 ? '#9a4640' : '#b8574d');
   }
 
@@ -1393,10 +1520,14 @@ const WALLPAPER = {
                    if (v === 14) return '#5d8577';
                    if (v < 14) return '#6f978a';
                    return ((ux + ((v >> 2) & 1) * 4) & 7) === 0 && (v & 3) === 2 ? '#94bcae' : '#7aa295'; },
+  entry(ux, v)   { if (v < 3) return v < 2 ? '#e9dfd0' : '#6b4a36';          // wood panelling below a dado rail
+                   if (v < 16) return (ux & 3) === 0 ? '#7a5a3e' : v === 15 ? '#b08a5e' : '#9a7652';
+                   if (v < 18) return '#6b4a36';
+                   return '#dccdaa'; },
 };
 function wallTheme(dir, f, u) {
-  if (dir === 'N') return f < 1 ? (u < 5 ? 'bed' : 'bath') : (u < 4 ? 'kitchen' : 'living');
-  return f < 1 ? (u < 4 ? 'bed' : u < 7 ? 'kitchen' : 'living') : 'bath';
+  if (dir === 'N') return f < 1 ? (u < 6 ? 'bed' : 'bath') : (u < 4 ? 'kitchen' : 'living');
+  return f < 1 ? (u < 4 ? 'bed' : u < 8 ? 'kitchen' : 'entry') : 'bath';
 }
 
 /* wall decorations, painted straight onto the wall plane so they skew with it */
@@ -1404,9 +1535,9 @@ const DECOR_ART = {
   painting: { pal:{ f:'#c9a15a', b:'#8fc2e0', y:'#f2d27a', g:'#6fa864', G:'#4e8a50' }, rows:[
     'ffffffffffff','fbbbbbbbbbbf','fbbbbbbyybbf','fbbbbbbyybbf','fbbbgbbbbbbf',
     'fbbgggbbbgbf','fbgggggbgggf','fgggGGgggGgf','fGGGGGGGGGGf','ffffffffffff'] },
-  star:     { pal:{ y:'#f2c94c' }, rows:['...y...','...y...','yyyyyyy','.yyyyy.','..yyy..','.yy.yy.','.y...y.'] },
-  bunting:  { pal:{ n:'#7a5a3e', r:'#d9695f', y:'#f2c94c', b:'#6c9bd0', p:'#e58fb5', g:'#7fbf7a' },
-              rows:['nnnnnnnnnnnnnnnnnnn','rrr.yyy.bbb.ppp.ggg','.r...y...b...p...g.'] },
+  hooks:    { pal:{ n:'#6b4a36', g:'#b8c0c8', r:'#c4645a', R:'#9a4640', b:'#4f6f9a', B:'#3d5779', y:'#e0b457' }, rows:[
+    'nnnnnnnnnnnnnn','.g....g.....g.','rrr..bbbb..yy.','rRr.bbBbbb.yy.','rRr.bbBbbb.yy.',
+    'rRr.bbBbbb.yy.','.r..bbBbbb....','....bbbbbb....','.....b..b.....'] },
   mirror:   { pal:{ m:'#aeb7c0', B:'#cfe6ee', w:'#ffffff' }, rows:[
     '..mmmmm..','.mBBBBBm.','mBBwBBBBm','mBBBwBBBm','mBBBBwBBm','mBBBBBBBm',
     'mBBBBBBBm','mBBwBBBBm','mBBBwBBBm','.mBBBBBm.','..mmmmm..'] },
@@ -1420,14 +1551,15 @@ const DECOR_ART = {
 DECOR_ART.poster.pal.K = '#2b2238';
 const DECOR = [
   { dir:'N', u:1.9,  v:21, art:'painting' },       // over the nightstand
-  { dir:'N', u:0.28, v:22, art:'star' },           // over the kid's bed
-  { dir:'N', u:3.75, v:31, art:'bunting' },        // over the crib
-  { dir:'N', u:6.2,  v:21, art:'mirror' },         // over the sink
+  { dir:'N', u:4.2,  v:15, art:'poster' },
+  { dir:'N', u:7.2,  v:21, art:'mirror' },         // over the sink
   { dir:'N', u:8.1,  v:12, w:21, h:21, pad:3, paint:windowPx },
-  { dir:'W', u:3.12, v:19, art:'pinboard' },       // over the desk
+  { dir:'W', u:2.45, v:13, w:20, h:20, pad:5, paint:windowPx, curtains:true },
+  { dir:'W', u:1.12, v:29, art:'pinboard' },       // over the desk
   { dir:'W', u:5.18, v:25, w:11, h:11, paint:clockPx },
   { dir:'W', u:6.3,  v:12, w:22, h:21, pad:5, paint:windowPx, curtains:true },
-  { dir:'W', u:9.15, v:14, art:'poster' },
+  { dir:'W', u:8.14, v:0,  w:12, h:29, pad:2, paint:doorPx },
+  { dir:'W', u:9.08, v:19, art:'hooks' },          // over the bench
 ];
 for (const d of DECOR) if (d.art) {
   const a = DECOR_ART[d.art];
@@ -1512,6 +1644,23 @@ function clockPx(lu, lv) {
   if (clockHands.has(lu * 16 + lv)) return '#2b2238';
   return (r2 > 13 && (lu === 5 || lv === 5)) ? '#9a8a78' : '#f6f1e4';
 }
+// the front door: two panels and a brass knob; swung open onto the landing while
+// someone's coming or going
+function doorPx(lu, lv, d) {
+  const w = d.w, h = d.h;
+  if (lu < 0 || lu >= w || lv >= h) return (lu === -2 || lu === w + 1 || lv === h + 1) ? '#b1a592' : '#efe8da';
+  if (animT < doorOpenUntil) {
+    if (lu < 3) return lu === 2 ? '#6b3f2a' : '#a3603c';                   // the door itself, edge-on
+    if (lv < 4) return (lu + lv) & 1 ? '#8a8578' : '#9a9588';              // landing floor
+    return lv > h - 5 ? '#3a3a48' : '#4a4a5a';
+  }
+  if (lu === 0 || lu === w - 1 || lv === h - 1) return '#6b3f2a';
+  if (lu === w - 3 && (lv === 13 || lv === 14)) return '#f2c94c';
+  const inPanel = lu >= 2 && lu <= w - 3 && ((lv >= 3 && lv <= 11) || (lv >= 16 && lv <= h - 4));
+  if (!inPanel) return '#b8704a';
+  const edge = lu === 2 || lv === 11 || lv === h - 4;
+  return edge ? '#8e5236' : '#a3603c';
+}
 
 function wallPx(dir, f, px, py) {
   const [u, v] = dir === 'N' ? onS(f, px, py) : onE(f, px, py);
@@ -1577,6 +1726,7 @@ function sunPatches() {
   // dithered, so the light has a density instead of a flat wash
   const f = (x, y, c) => bayer(x, y) < a ? tint(c) : 0;
   fillPoly([P(8.1,0), P(9.4,0), P(9.8,2.3), P(8.5,2.3)], f);
+  fillPoly([P(0,2.45), P(0,3.7), P(1.6,3.98), P(1.6,2.73)], f);
   fillPoly([P(0,6.3), P(0,7.7), P(2.3,8.1), P(2.3,6.7)], f);
 }
 
@@ -1601,25 +1751,89 @@ const DETAIL = {
       box(x+.08, y+L*.42, .84, .1, .34, .02, '#f1e9da', { outline:false });          // turned-down sheet
     }
   },
-  crib(o) {
-    const x = o.x, y = o.y, wood = o.color, bar = C(shade(wood, .72));
-    for (const [dx, dy] of [[.14,.14],[.8,.14],[.14,.8]]) box(x+dx, y+dy, .06, .06, 0, .56, wood);
-    box(x+.14, y+.14, .72, .04, .5, .05, wood); box(x+.14, y+.14, .04, .72, .5, .05, wood);
-    for (let i = 1; i < 7; i++) { seg(x+.14+i*.1, y+.16, .12, x+.14+i*.1, y+.16, .5, bar);
-                                  seg(x+.16, y+.14+i*.1, .12, x+.16, y+.14+i*.1, .5, bar); }
-    box(x+.14, y+.14, .72, .72, .06, .08, wood);
-    box(x+.17, y+.17, .66, .66, .14, .04, '#f3e8f0');
-    const b = people.find(p => p.stage === 'baby');
-    if (b) {
-      const hp = P3(x+.5, y+.36, .18), sp = personSprite(b, 'head', 0, false, babyFace(b));
-      blit(sp, hp.x - SAX, hp.y - sp.ay);
-      box(x+.26, y+.44, .48, .34, .18, .05, '#e6dcef');
-      b._head = { x: hp.x, y: hp.y - sp.ay + sp.top };
-    }
-    for (let i = 1; i < 7; i++) { seg(x+.14+i*.1, y+.84, .12, x+.14+i*.1, y+.84, .5, bar);
-                                  seg(x+.84, y+.14+i*.1, .12, x+.84, y+.14+i*.1, .5, bar); }
-    box(x+.14, y+.82, .72, .04, .5, .05, wood); box(x+.82, y+.14, .04, .72, .5, .05, wood);
-    box(x+.8, y+.8, .06, .06, 0, .56, wood);
+  wardrobe(o) {
+    const x = o.x, y = o.y, c = o.color, knob = C('#e0b457');
+    box(x+.08, y+.1, .84, .62, 0, 1.36, c);
+    seg(x+.5, y+.72, .06, x+.5, y+.72, 1.3, lineOf(c));                             // the doors' seam
+    faceS(x+.14, x+.86, y+.72, .04, .08, C(shade(c, .6)));                          // plinth
+    dot(x+.44, y+.72, .7, knob); dot(x+.56, y+.72, .7, knob);
+    box(x+.18, y+.2, .4, .34, 1.36, .18, '#c49a6c');                                // a box on top
+    box(x+.62, y+.28, .2, .22, 1.36, .1, '#7fb5a8');
+  },
+  tub(o) {
+    const x = o.x, y = o.y, L = o.h, full = inUse('tub');
+    soft(x+.08, y+.06, .84, L-.12, 0, .42, o.color, .14);
+    faceT(x+.2, y+.18, x+.8, y+L-.18, .42, C('#d9d3c6'));                            // the inside
+    if (full) faceT(x+.22, y+.22, x+.78, y+L-.2, .42, (px, py) =>
+      C(hash(px, py) > 0.78 ? '#ffffff' : (px + py) & 1 ? '#bfe6f0' : '#a6d8e8'));  // water and foam
+    box(x+.46, y+.08, .08, .08, .42, .1, STEEL);                                    // tap
+    box(x+.46, y+.14, .08, .08, .48, .03, STEEL, { outline:false });
+    for (const dy of [.2, L-.28]) box(x+.14, y+dy, .08, .08, 0, .04, '#c9a15a', { outline:false });   // claw feet
+  },
+  bench(o) {
+    // against the west wall by the door, for taking shoes off
+    const x = o.x, y = o.y, c = o.color, leg = shade(c, .78);
+    for (const [dx, dy] of [[.12,.12],[.52,.12],[.12,.82],[.52,.82]]) box(x+dx, y+dy, .06, .06, 0, .32, leg);
+    box(x+.1, y+.1, .5, .8, .08, .04, leg);                                          // shoe shelf
+    box(x+.16, y+.2, .14, .22, .12, .06, '#3b2d2a'); box(x+.34, y+.2, .14, .22, .12, .06, '#3b2d2a');
+    box(x+.18, y+.56, .14, .22, .12, .06, '#c4645a');
+    box(x+.08, y+.08, .56, .84, .32, .06, c);
+    soft(x+.12, y+.14, .46, .5, .38, .05, '#6c8bd0', .06);                           // cushion
+  },
+  armchair(o) {
+    // faces south, like the sofa
+    const x = o.x, y = o.y, c = o.color, hi = shade(c, 1.08);
+    soft(x+.1, y+.08, .8, .3, 0, .54, c, .08);                                      // back
+    box(x+.14, y+.3, .72, .6, 0, .12, shade(c, .92));                               // base
+    soft(x+.22, y+.32, .56, .56, .12, .08, hi, .08);                                // cushion
+    soft(x+.04, y+.12, .2, .8, 0, .34, c, .06);                                     // arms
+    soft(x+.76, y+.12, .2, .8, 0, .34, c, .06);
+    for (const dx of [.1, .84]) box(x+dx, y+.84, .06, .06, 0, .04, '#5a4030', { outline:false });
+  },
+  tank(o) {
+    // an aquarium on a low cabinet; it lights itself, so it glows at night
+    const x = o.x, y = o.y, s = y + .72, t = animT;
+    box(x+.06, y+.14, .88, .58, 0, .4, '#5a4636');
+    seg(x+.5, s, .06, x+.5, s, .34, lineOf('#5a4636'));
+    EMIT = 1;
+    box(x+.08, y+.16, .84, .56, .4, .5, '#5fb3c9');
+    faceS(x+.1, x+.9, s, .42, .88, (px, py) => {
+      const [u, v] = onS(s, px, py), lu = (u - x - .1) / .8, lv = (v / TW - .42) / .46;
+      if (lv < .12) return C(hash(px, 3) > .5 ? '#d9c38f' : '#c7ad78');            // sand
+      for (let k = 0; k < 2; k++) {                                                 // two fish, back and forth
+        const ph = (t * .12 + k * .47) % 2, fx = ph < 1 ? ph : 2 - ph, fy = .38 + k * .26;
+        if (Math.abs(lu - (.12 + fx * .76)) < .07 && Math.abs(lv - fy) < .06) return C(k ? '#f2c94c' : '#e8913a');
+      }
+      if (Math.abs(lu - .2 - Math.sin(lv * 7 + t) * .03) < .04 && lv < .7) return C('#4e8f5a');   // weed
+      if (Math.abs(lu - .82) < .02 && ((lv * 10 + t * 3) % 1) < .3) return C('#e6f6fa');       // bubbles
+      return C(lv > .82 ? '#8fd6e6' : (px + py) & 1 ? '#5fb3c9' : '#56a8be');
+    });
+    faceE(y+.18, y+.7, x+.92, .42, .88, C('#4f9fb6'));
+    EMIT = 0;
+    box(x+.06, y+.14, .88, .6, .9, .05, '#3a3f4a');                                 // lid
+  },
+  record(o) {
+    // a record player on a cabinet of records, facing south toward the dance floor and
+    // the room (facing east it read as facing the wall); a low speaker at the east end
+    const x = o.x, y = o.y, c = o.color, s = y + .7, on = inUse('record', 'dance');
+    box(x+.06, y+.14, .88, .56, 0, .44, c);
+    faceS(x+.1, x+.9, s, .06, .38, (px, py) => {                                    // record sleeves
+      const [u] = onS(s, px, py), k = Math.floor((u - x) * 16);
+      return C(k % 3 === 0 ? '#3a2418' : BOOK[Math.floor(hash(k, 4) * BOOK.length)]);
+    });
+    box(x+.1, y+.18, .5, .46, .44, .05, '#3a3f4a');                                 // the deck
+    cyl(x+.34, y+.41, .17, .49, .01, '#1c1c22', { rim:false });
+    const a = on ? animT * 8 : 0;
+    dot(x+.34, y+.41, .5, C('#d9534f'));
+    dot(x+.34 + Math.cos(a) * .1, y+.41 + Math.sin(a) * .05, .5, C('#5a5a64'));
+    seg(x+.54, y+.22, .52, x+.44, y+.44, .52, C(STEEL));                            // tone arm
+    // a low speaker: the armchair is behind, and a tall one hid whoever sat in it
+    box(x+.66, y+.18, .24, .26, .44, .24, '#2b2f3a');
+    faceS(x+.68, x+.88, y+.44, .46, .66, (px, py) => {
+      const [u, v] = onS(y + .44, px, py), cu = (u - x - .78) * 16, cv = v - .56 * TW;
+      const r = cu * cu + cv * cv, pulse = on && Math.floor(animT * 6) & 1 ? 2 : 0;
+      return C(r < 3 + pulse ? '#6a6f7a' : r < 8 + pulse ? '#15171d' : '#2b2f3a');
+    });
   },
   stand(o) {
     const x = o.x, y = o.y;
@@ -1634,25 +1848,28 @@ const DETAIL = {
     EMIT = 0;
   },
   desk(o) {
-    const x = o.x, y = o.y, top = shade(o.color, 1.1), leg = shade(o.color, .8), on = inUse('desk');
-    box(x+.06, y+.1, .06, .06, 0, .42, leg); box(x+.52, y+.1, .06, .06, 0, .42, leg);
-    box(x+.06, y+.62, .52, .28, 0, .42, o.color);                                  // drawers
-    seg(x+.58, y+.64, .22, x+.58, y+.88, .22, lineOf(o.color));
-    box(x+.04, y+.08, .6, .84, .42, .05, top);
-    box(x+.1, y+.44, .08, .12, .47, .04, '#2f3645');
-    box(x+.1, y+.26, .08, .46, .52, .28, '#2f3645');                                // monitor
+    // a computer desk against the west wall: the screen faces east, into the room
+    const x = o.x, y = o.y, top = shade(o.color, 1.15), leg = shade(o.color, .8), on = inUse('desk');
+    box(x+.06, y+.08, .06, .06, 0, .42, leg); box(x+.52, y+.08, .06, .06, 0, .42, leg);
+    box(x+.06, y+.62, .52, .3, 0, .42, o.color);                                   // drawers
+    seg(x+.58, y+.64, .14, x+.58, y+.9, .14, lineOf(o.color));
+    seg(x+.58, y+.64, .28, x+.58, y+.9, .28, lineOf(o.color));
+    box(x+.04, y+.04, .6, .92, .42, .05, top);
+    box(x+.12, y+.42, .16, .16, .47, .02, '#3a4050');                               // monitor foot
+    box(x+.13, y+.47, .05, .06, .49, .08, '#3a4050', { outline:false });
+    box(x+.1, y+.2, .08, .6, .56, .36, '#4a5264');                                  // monitor
     EMIT = on ? 1 : 0;
-    faceE(y+.3, y+.68, x+.18, .56, .76, (px, py) => {
+    faceE(y+.24, y+.76, x+.18, .6, .88, (px, py) => {
       const [gy, v] = onE(x + .18, px, py), row = Math.floor(v) % 3, col = Math.floor((gy - y) * 16);
-      if (!on) return C((col + Math.floor(v)) % 5 === 0 ? '#3a4458' : '#262d3b');
+      if (!on) return C((col + Math.floor(v)) % 6 === 0 ? '#4a5a74' : '#2a3448');  // a sheen on the dark glass
       return C(row === 0 && hash(col, Math.floor(v / 3) + Math.floor(animT * 2)) > 0.35 ? '#eaf4ff' : '#6fa8dc');
     });
     EMIT = 0;
-    box(x+.28, y+.34, .12, .3, .47, .015, '#e0ddd4', { outline:false });
-    box(x+.3, y+.12, .2, .14, .47, .01, '#f4f0e6', { outline:false });
-    cyl(x+.34, y+.8, .045, .47, .07, '#e0a35c');
-  },
-  shower(o) {
+    box(x+.3, y+.3, .12, .36, .47, .02, '#e8e4da');                                 // keyboard
+    box(x+.32, y+.74, .08, .06, .47, .02, '#e8e4da', { outline:false });            // mouse
+    box(x+.26, y+.06, .22, .16, .47, .01, '#f4f0e6', { outline:false });            // notes
+    cyl(x+.44, y+.86, .045, .47, .08, '#e0a35c');                                   // mug
+  },  shower(o) {
     const x = o.x, y = o.y;
     box(x+.06, y+.06, .88, .88, 0, .06, '#f1ede4');
     dot(x+.5, y+.5, .06, C('#8e95a6'));
@@ -1682,7 +1899,7 @@ const DETAIL = {
     seg(e, y+.12, .8, e, y+.88, .8, C(shade(c, .5)));
     box(e, y+.16, .04, .05, .86, .28, '#8f9088', { outline:false });
     box(e, y+.16, .04, .05, .42, .3, '#8f9088', { outline:false });
-    faceE(y+.46, y+.72, e, .44, .66, C('#f4efe3'));                                 // a kid's drawing
+    faceE(y+.46, y+.72, e, .44, .66, C('#f4efe3'));                                 // a postcard
     dot(e, y+.55, .56, C('#e36f8e')); dot(e, y+.62, .5, C('#4f8fd0')); dot(e, y+.58, .6, C('#f2c94c'));
     dot(e, y+.52, 1.02, C('#d9534f')); dot(e, y+.68, .98, C('#f2c94c')); dot(e, y+.6, 1.1, C('#4f8fd0'));
     box(x+.2, y+.3, .34, .16, 1.25, .2, '#e0b457');                                 // cereal
@@ -1722,19 +1939,30 @@ const DETAIL = {
     cyl(x+.5, y+.62, .04, .58, .05, '#8fbf6a', { outline:false });
   },
   table(o) {
-    const x = o.x, y = o.y, leg = shade(o.color, .8);
-    for (const [dx, dy] of [[.12,.16],[1.8,.16],[.12,.76],[1.8,.76]]) box(x+dx, y+dy, .08, .08, 0, .38, leg);
-    box(x+.04, y+.1, 1.92, .8, .38, .06, shade(o.color, 1.06));
-    box(x+.72, y+.1, .56, .8, .44, .004, '#e6dcc8', { outline:false, rim:false });  // runner
-    cyl(x+1, y+.46, .06, .44, .14, '#7fb5a8');
-    cyl(x+.97, y+.43, .04, .58, .03, '#e36f8e', { outline:false });
-    cyl(x+1.04, y+.5, .04, .6, .03, '#f2c94c', { outline:false });
-    const eating = people.filter(p => p.held === 'table' && !p.path.length).length;
-    [.55, 1.45].forEach((cx, k) => {
-      cyl(x+cx, y+.7, .13, .44, .01, '#f4f0e8', { rim:false });
-      if (k < eating) { cyl(x+cx-.02, y+.68, .06, .45, .02, '#d98a4a', { outline:false });
-                        cyl(x+cx+.05, y+.73, .04, .45, .02, '#7fbf6a', { outline:false }); }
-    });
+    // the footprint is 2×3: chairs on the first and last rows (BACK and FRONT), the
+    // table itself on the middle one
+    const x = o.x, y = o.y + 1, leg = shade(o.color, .8);
+    for (const [dx, dy] of [[.12,.12],[1.8,.12],[.12,.8],[1.8,.8]]) box(x+dx, y+dy, .08, .08, 0, .38, leg);
+    box(x+.04, y+.04, 1.92, .92, .38, .06, shade(o.color, 1.06));
+    box(x+.72, y+.04, .56, .92, .44, .004, '#e6dcc8', { outline:false, rim:false });  // runner
+    cyl(x+1, y+.5, .06, .44, .14, '#7fb5a8');
+    cyl(x+.97, y+.47, .04, .58, .03, '#e36f8e', { outline:false });
+    cyl(x+1.04, y+.54, .04, .6, .03, '#f2c94c', { outline:false });
+    // whatever each seat is doing: a plate for eating, a hand of cards for playing
+    for (const p of everyone()) {
+      if (p.held !== o.id || p.path.length || !p.seat || p.seat.id !== o.id) continue;
+      const k = p.seat.k, cx = x + .55 + (k & 1) * .9, cy = k < 2 ? y + .26 : y + .74;
+      if (p.actKey === 'eat') {
+        cyl(cx, cy, .13, .44, .01, '#f4f0e8', { rim:false });
+        cyl(cx-.02, cy-.02, .06, .45, .02, '#d98a4a', { outline:false });
+        cyl(cx+.05, cy+.03, .04, .45, .02, '#7fbf6a', { outline:false });
+      } else if (p.actKey === 'cards') {
+        box(cx-.12, cy-.06, .1, .14, .44, .004, '#f7f3ea', { rim:false });
+        box(cx+.02, cy-.08, .1, .14, .44, .004, '#f7f3ea', { rim:false });
+        dot(cx-.07, cy, .45, C('#d9534f')); dot(cx+.07, cy-.02, .45, C('#2b2238'));
+      }
+    }
+    if (inUse('table', 'cards')) box(x+.9, y+.3, .2, .28, .44, .02, '#6c8bd0', { rim:false });   // the deck
   },
   guitar(o) {
     const x = o.x, y = o.y, dark = C('#3e3a36');
@@ -1776,21 +2004,22 @@ const DETAIL = {
     blit(SPRIG, p.x - (SPRIG.w >> 1), p.y - SPRIG.h + 2);
   },
   arcade(o) {
-    const x = o.x, y = o.y, e = x + .76, c = o.color, played = inUse('arcade');
-    box(x+.14, y+.18, .62, .64, 0, 1.1, c);
-    faceS(x+.16, x+.74, y+.82, .08, 1.02, (px, py) => {                            // side art
-      const [u, v] = onS(y + .82, px, py), q = (((Math.floor((u - x) * 16 - v / 3)) % 9) + 9) % 9;
+    // against the divider, screen facing south: the player stands on the tile in front
+    const x = o.x, y = o.y, s = y + .76, c = o.color, played = inUse('arcade');
+    box(x+.18, y+.14, .64, .62, 0, 1.1, c);
+    faceE(y+.16, y+.74, x+.82, .08, 1.02, (px, py) => {                            // side art
+      const [gy, v] = onE(x + .82, px, py), q = (((Math.floor((gy - y) * 16 - v / 3)) % 9) + 9) % 9;
       return q === 0 ? C('#e36f8e') : q === 2 ? C('#f2c94c') : 0;
     });
-    box(e, y+.2, .16, .6, .44, .08, '#31456b');                                     // control ledge
-    seg(e+.07, y+.38, .52, e+.07, y+.38, .6, C('#222222'));
-    cyl(e+.07, y+.38, .035, .6, .03, '#e05c5c', { outline:false });
-    cyl(e+.08, y+.56, .03, .52, .01, '#f2c94c', { outline:false });
-    cyl(e+.08, y+.67, .03, .52, .01, '#4fb3e0', { outline:false });
+    box(x+.2, s, .6, .16, .44, .08, '#31456b');                                     // control ledge
+    seg(x+.38, s+.07, .52, x+.38, s+.07, .6, C('#222222'));
+    cyl(x+.38, s+.07, .035, .6, .03, '#e05c5c', { outline:false });
+    cyl(x+.56, s+.08, .03, .52, .01, '#f2c94c', { outline:false });
+    cyl(x+.67, s+.08, .03, .52, .01, '#4fb3e0', { outline:false });
     EMIT = 1;
     const t = Math.floor(animT * 6);
-    faceE(y+.24, y+.76, e, .58, .94, (px, py) => {
-      const [gy, v] = onE(e, px, py), lu = Math.floor((gy - y - .24) * 16), lv = Math.floor(v - .58 * TW);
+    faceS(x+.24, x+.76, s, .58, .94, (px, py) => {
+      const [gx, v] = onS(s, px, py), lu = Math.floor((gx - x - .24) * 16), lv = Math.floor(v - .58 * TW);
       if (lu < 1 || lu > 6 || lv < 1 || lv > 9) return C('#111726');
       if (!played) return C(((lv + t) & 3) < 2 ? '#2a3a6a' : '#1a2448');
       if (lv >= 7 && (lu + (t >> 1)) % 3 === 0) return C('#7be0d0');                // invaders
@@ -1798,8 +2027,8 @@ const DETAIL = {
       if (lu === 1 + ((t + 2) % 5) && lv === 2 + (t % 4) * 1) return C('#ffffff');   // shot
       return C('#0e1a2e');
     });
-    faceE(y+.22, y+.78, e, .98, 1.08, (px, py) => {
-      const [gy, v] = onE(e, px, py), lu = Math.floor((gy - y) * 16), lv = Math.floor(v);
+    faceS(x+.22, x+.78, s, .98, 1.08, (px, py) => {
+      const [gx, v] = onS(s, px, py), lu = Math.floor((gx - x) * 16), lv = Math.floor(v);
       return C((lu + lv + (played ? t : 0)) % 3 === 0 ? '#e36f8e' : '#f2c94c');
     });
     EMIT = 0;
@@ -1824,14 +2053,18 @@ const DETAIL = {
   },
   tv(o) {
     // we see it from behind; the screen faces the sofa
-    const x = o.x, y = o.y, on = inUse('sofa', 'tv');
-    box(x+.08, y+.3, .84, .44, 0, .22, '#7d6a52');
-    seg(x+.5, y+.74, .03, x+.5, y+.74, .19, C('#4e3f30'));
-    dot(x+.44, y+.74, .12, C('#e0b457')); dot(x+.56, y+.74, .12, C('#e0b457'));
-    box(x+.46, y+.44, .08, .06, .22, .06, '#2a2f3c');
-    box(x+.1, y+.4, .8, .08, .28, .46, o.color);
-    for (let i = 0; i < 4; i++) seg(x+.32+i*.1, y+.48, .46, x+.32+i*.1, y+.48, .6, lineOf(o.color));
-    if (on) { EMIT = 1; seg(x+.12, y+.4, .74, x+.88, y+.4, .74, C('#bfe0ff')); EMIT = 0; }
+    const x = o.x, y = o.y, w = o.w, m = x + w / 2, knob = C('#e0b457');
+    const show = inUse('sofa', 'tv') ? '#bfe0ff' : inUse('sofa', 'game') ? '#f0a0d8' : null;
+    box(x+.1, y+.3, w-.2, .44, 0, .22, '#7d6a52');                                  // low cabinet
+    for (const dx of [-.5, .5]) {
+      seg(m+dx, y+.74, .03, m+dx, y+.74, .19, C('#4e3f30'));
+      dot(m+dx-.08, y+.74, .12, knob); dot(m+dx+.08, y+.74, .12, knob);
+    }
+    box(m-.2, y+.44, .4, .06, .22, .06, '#2a2f3c');                                 // stand
+    box(x+.16, y+.4, w-.32, .08, .28, .56, o.color);                                // the set, from behind
+    for (let i = 0; i < 6; i++) seg(m-.25+i*.1, y+.48, .5, m-.25+i*.1, y+.48, .66, lineOf(o.color));
+    if (show) { EMIT = 1; seg(x+.18, y+.4, .84, x+w-.18, y+.4, .84, C(show)); EMIT = 0; }
+    if (inUse('sofa', 'game')) box(m+.3, y+.3, .16, .1, .22, .04, '#2b2f3a');       // console
   },
   lamp(o) {
     const x = o.x, y = o.y;
@@ -1850,10 +2083,23 @@ const DETAIL = {
   },
 };
 
+// parts that belong behind whoever is using the object: the chairs on the table's far
+// side, whose sitters face the camera across it
+const BACK = {
+  table(o) {
+    const x = o.x, y = o.y, c = shade(o.color, .92), leg = shade(o.color, .78);
+    for (const cx of [.55, 1.45]) {
+      for (const [lx, ly] of [[-.17,.66],[.12,.66],[-.17,.9],[.12,.9]]) box(x+cx+lx, y+ly, .05, .05, 0, .14, leg);
+      box(x+cx-.2, y+.6, .4, .06, .19, .3, c);
+      box(x+cx-.2, y+.64, .4, .34, .14, .05, c);
+    }
+  },
+};
+
 // parts that belong in front of whoever is using the object
 const FRONT = {
   table(o) {
-    const x = o.x, y = o.y, c = shade(o.color, .92), leg = shade(o.color, .78);
+    const x = o.x, y = o.y + 1, c = shade(o.color, .92), leg = shade(o.color, .78);
     for (const cx of [.55, 1.45]) {
       for (const [lx, ly] of [[-.17,1.04],[.12,1.04],[-.17,1.28],[.12,1.28]]) box(x+cx+lx, y+ly, .05, .05, 0, .14, leg);
       box(x+cx-.2, y+1.02, .4, .34, .14, .05, c);
@@ -1861,11 +2107,12 @@ const FRONT = {
     }
   },
   desk(o) {
-    const x = o.x, y = o.y, c = '#5b6b8a';
-    cyl(x+.8, y+.5, .14, 0, .03, '#3a3f4a');
-    box(x+.78, y+.48, .04, .04, .03, .14, '#3a3f4a', { outline:false });
-    box(x+.64, y+.3, .3, .4, .17, .05, c);
-    box(x+.9, y+.3, .06, .4, .22, .3, c);
+    // an office chair: star base, a bright seat and a tall back, so it reads at this size
+    const x = o.x, y = o.y, c = '#c4645a', base = C('#2b2f3a');
+    for (const [dx, dy] of [[-.14,0],[.14,0],[0,-.14],[0,.14]]) seg(x+.8, y+.5, .02, x+.8+dx, y+.5+dy, .02, base);
+    box(x+.78, y+.48, .04, .04, .02, .16, '#3a3f4a', { outline:false });
+    soft(x+.62, y+.3, .32, .4, .18, .06, c, .06);
+    soft(x+.88, y+.28, .08, .44, .22, .36, c, .04);
   },
   shower(o) {
     const x = o.x, y = o.y, fog = inUse('shower') ? .4 : .28, g = C('#c4ecf2'), hi = C('#ffffff');
@@ -1879,14 +2126,20 @@ const FRONT = {
   },
 };
 
-function drawObject(o) {
-  const fn = DETAIL[o.id] ||
-             ((o.id.startsWith('bed') || o.id.startsWith('kidbed')) ? DETAIL.bed : null);
-  if (fn) fn(o);
-  else box(o.x+.08, o.y+.08, o.w-.16, o.h-.16, 0, o.hgt, o.color);
-}
+const drawObject = o => DETAIL[o.kind || o.id](o);
 
 /* ---------- where and how each person is drawn ---------- */
+
+// A seat is claimed on arrival and kept, so nobody slides along the sofa when the
+// person beside them gets up.
+function seatFor(s, o, n) {
+  if (s.seat && s.seat.id === o.id) return s.seat.k;
+  const used = new Set(everyone().filter(p => p !== s && p.seat && p.seat.id === o.id).map(p => p.seat.k));
+  let k = 0;
+  while (used.has(k) && k < n - 1) k++;
+  s.seat = { id: o.id, k };
+  return k;
+}
 
 // Poses key off arrival, not intent — nobody sits down until they've got there.
 function placeSim(s) {
@@ -1896,26 +2149,41 @@ function placeSim(s) {
   let pose = s.path.length ? 'walk' : 'stand', depth = gx + gy;
   if (o) {
     const ocx = o.x + o.w / 2, ocy = o.y + o.h / 2;
-    const users = people.filter(p => p.held === o.id && !p.path.length && p.mobile);
-    const slot = Math.max(0, users.indexOf(s)) % 2;
     fx = ocx - gx; fy = ocy - gy;
     // drawn at the furniture, so sorted at the furniture — otherwise sleepers vanish behind the bed
     depth = ocx + ocy + 0.55;
-    switch (s.actKey === 'sleep' ? 'bed' : o.id) {
-      case 'bed':    pose = 'lie'; break;
-      case 'sofa':   gx = o.x + .55 + slot * .9; gy = o.y + .56; z = .19; pose = 'sit'; fx = 0; fy = 1; break;
-      case 'toilet': gx = ocx; gy = o.y + .5; z = .17; pose = 'sit'; fx = 0; fy = 1; break;
-      case 'table':  gx = o.x + .55 + slot * .9; gy = o.y + 1.14; z = .19; pose = 'sitback'; fx = 0; fy = -1; break;
-      case 'desk':   gx = o.x + .8; gy = o.y + .5; z = .22; pose = 'sitback'; fx = -1; fy = 0; break;
-      case 'mat':    gx = ocx; gy = ocy; pose = 'stretch'; fx = .3; fy = 1; break;
-      case 'shower': gx = ocx; gy = ocy; fx = 0; fy = 1; break;
-      case 'guitar': gx += (ocx - gx) * .3; gy += (ocy - gy) * .3; pose = 'guitar'; fx = 0; fy = 1; break;
-      default:       gx += (ocx - gx) * .28; gy += (ocy - gy) * .28; pose = 'use';
+    // ...except whoever stands on their own tile in front of it, which sorts them correctly already
+    const ownTile = () => { depth = gx + gy + 0.05; };
+    switch (s.actKey === 'sleep' ? 'bed' : o.kind || o.id) {
+      case 'bed':
+      case 'tub':      pose = 'lie'; break;
+      case 'sofa':     gx = o.x + .55 + seatFor(s, o, 2) * .9; gy = o.y + .56; z = .19; pose = 'sit'; fx = 0; fy = 1; break;
+      case 'armchair': gx = ocx; gy = o.y + .56; z = .19; pose = 'sit'; fx = 0; fy = 1; break;
+      case 'bench':    gx = o.x + .4; gy = ocy; z = .36; pose = 'sit'; fx = 1; fy = 0; break;
+      case 'toilet':   gx = ocx; gy = o.y + .5; z = .17; pose = 'sit'; fx = 0; fy = 1; break;
+      case 'table': {
+        // seats 0 and 1 are across the table, facing us, so they fill first
+        const k = seatFor(s, o, 4);
+        gx = o.x + .55 + (k & 1) * .9; z = .19;
+        if (k < 2) { gy = o.y + .86; pose = 'sit'; fx = 0; fy = 1; depth = ocx + ocy - .3; }
+        else       { gy = o.y + 2.14; pose = 'sitback'; fx = 0; fy = -1; }
+        break;
+      }
+      case 'desk':     gx = o.x + .8; gy = o.y + .5; z = .22; pose = 'sitback'; fx = -1; fy = 0; break;
+      case 'mat':      gx = ocx; gy = ocy; pose = 'stretch'; fx = .3; fy = 1; ownTile(); break;
+      case 'shower':   gx = ocx; gy = ocy; fx = 0; fy = 1; break;
+      case 'guitar':   gx += (ocx - gx) * .3; gy += (ocy - gy) * .3; pose = 'guitar'; fx = 0; fy = 1; break;
+      case 'arcade':   gx = ocx; gy = o.y + 1.3; pose = 'use'; fx = 0; fy = -1; ownTile(); break;
+      case 'tank':     gx = ocx; gy = o.y + 1.35; fx = 0; fy = -1; ownTile(); break;
+      case 'easel':    gx = o.x + 1.3; gy = ocy; pose = 'use'; fx = -1; fy = 0; ownTile(); break;
+      case 'record':   pose = 'dance'; fx = 0; fy = 1; ownTile(); break;
+      default:         gx += (ocx - gx) * .28; gy += (ocy - gy) * .28; pose = 'use';
     }
   }
-  if (s.actKey === 'chat' && chat.on && !s.path.length && (chat.a === s || chat.b === s)) {
-    const other = chat.a === s ? chat.b : chat.a;
-    if (other) { fx = other.tx - s.tx; fy = other.ty - s.ty; pose = 'talk'; }
+  const c = convOf(s);
+  if (c && s.actKey === 'chat' && !s.path.length) {
+    const other = c.a === s ? c.b : c.a;
+    fx = other.tx - s.tx; fy = other.ty - s.ty; pose = 'talk';
   }
   return { gx, gy, z, fx, fy, pose, o, depth };
 }
@@ -1929,37 +2197,51 @@ function shadowAt(p, rx) {
   }
 }
 
+const bathWater = (px, py) => C(hash(px, py) > 0.78 ? '#ffffff' : (px + py) & 1 ? '#bfe6f0' : '#a6d8e8');
+
 function drawSim(s) {
   const pl = placeSim(s);
   if (pl.pose === 'lie') {
-    const o = pl.o, L = o.h;
-    const hp = P3(o.x + .5, o.y + (L > 1 ? .32 : .26), .3);
-    const sp = personSprite(s, 'head', 0, false, 'sleep');
+    const o = pl.o, L = o.h, tub = o.id === 'tub';
+    const hp = P3(o.x + .5, o.y + (tub ? .42 : L > 1 ? .32 : .26), .3);
+    const sp = personSprite(s, 'head', 0, false, tub ? moodFace(s) : 'sleep');
     blit(sp, hp.x - SAX, hp.y - sp.ay);
-    box(o.x + .08, o.y + L * .4, .84, L * .6 - .08, .14, .26, o.color);             // duvet pulled up
-    box(o.x + .08, o.y + L * .4, .84, .1, .4, .02, '#f1e9da', { outline:false });
+    if (tub) faceT(o.x + .22, o.y + .62, o.x + .78, o.y + L - .2, .42, bathWater);   // up to the chin
+    else {
+      box(o.x + .08, o.y + L * .4, .84, L * .6 - .08, .14, .26, o.color);           // duvet pulled up
+      box(o.x + .08, o.y + L * .4, .84, .1, .4, .02, '#f1e9da', { outline:false });
+    }
     s._head = { x: hp.x, y: hp.y - sp.ay + sp.top };
     return;
   }
   const p = P3(pl.gx, pl.gy, pl.z);
-  if (!pl.z) shadowAt(p, s.stage === 'child' ? 4 : 5);
+  if (!pl.z) shadowAt(p, 5);
   const { back, flip } = facing(pl.fx, pl.fy);
-  const fr = pl.pose === 'walk' ? Math.floor(s.bob * 0.8) & 3 : Math.floor(animT * 2.5 + s.i * .7) & 1;
+  const fr = pl.pose === 'walk' ? Math.floor(s.bob * 0.8) & 3
+           : Math.floor(animT * (pl.pose === 'dance' ? 4 : 2.5) + s.i * .7) & 1;
   let face = s.actKey === 'sleep' ? 'sleep' : moodFace(s);
-  if (pl.pose === 'talk' && face !== 'blink') face = chat.mode === 'argue' ? 'angry' : fr ? 'talk' : 'happy';
+  const c = convOf(s);
+  if (pl.pose === 'talk' && face !== 'blink') face = c && c.mode === 'argue' ? 'angry' : fr ? 'talk' : 'happy';
+  if (pl.pose === 'dance' && face !== 'blink') face = 'happy';
   const sp = personSprite(s, pl.pose, fr, back, face);
   blit(sp, p.x - SAX, p.y - sp.ay, flip);
+  if (pl.pose === 'sit' && s.actKey === 'read')                   // a book held open
+    for (let j = 0; j < 3; j++) for (let i = -2; i < 2; i++)
+      put(p.x + i, p.y - 5 + j, C(j === 0 ? '#f4f0e6' : i === -2 || i === 1 ? '#8e3f45' : '#c4645a'));
+  if (pl.pose === 'sit' && s.actKey === 'game')                   // a controller
+    for (let i = -2; i < 2; i++) { put(p.x + i, p.y - 3, C('#2b2f3a')); put(p.x + i, p.y - 2, C(i & 1 ? '#d9534f' : '#2b2f3a')); }
   s._head = { x: p.x, y: p.y - sp.ay + sp.top };
 }
 
-const ICON_OF = { sleep:'zzz', tend:'bottle', eat:'plate', cook:'pan', snack:'sandwich', toilet:'drop',
-                  shower:'shower', wash:'bubbles', tv:'tv', read:'book', paint:'palette', guitar:'note',
-                  arcade:'joystick', stretch:'stretch', online:'chat', relax:'leaf', chat:'dots' };
+const ICON_OF = { sleep:'zzz', eat:'plate', cook:'pan', snack:'sandwich', toilet:'drop', shower:'shower',
+                  bath:'tub', wash:'bubbles', tv:'tv', game:'pad', cards:'cards', dance:'disc', fish:'fish',
+                  read:'book', paint:'palette', guitar:'note', arcade:'joystick', stretch:'stretch',
+                  online:'chat', relax:'leaf', chat:'dots' };
 function iconFor(s) {
-  if (s.stage === 'baby') return Math.min(...BABY_NEEDS.map(k => s.needs[k])) < 30 ? 'drop' : null;
   if (!s.actKey || (s.actKey === 'sleep' && !s.path.length)) return null;   // the Zs say it
-  if (s.actKey === 'chat' && chat.on)
-    return chat.mode === 'argue' ? 'anger' : (rel > 52 || family.partners) ? 'heart' : 'dots';
+  const c = convOf(s);
+  if (s.actKey === 'chat' && c)
+    return c.mode === 'argue' ? 'anger' : residents(c) && (rel > 52 || family.partners) ? 'heart' : 'dots';
   return ICON_OF[s.actKey];
 }
 function drawBubble(s) {
@@ -1979,16 +2261,21 @@ function spawn(kind, x, y, vx, vy, life) {
 function emitParticles(dt) {
   if (!dt) return;
   const chance = r => Math.random() < r * dt, rnd = (a, b) => a + Math.random() * (b - a);
-  for (const s of people) {
+  for (const s of everyone()) {
     const hd = s._head, here = !s.path.length;
     if (!hd || !here) continue;
     if (s.actKey === 'sleep' && chance(0.7)) spawn('z', hd.x + 3, hd.y + 1, 3, -6, 2.4);
     if (s.actKey === 'guitar' && chance(1.4)) spawn('note', hd.x + 5, hd.y + 8, rnd(3, 7), -9, 1.7);
   }
-  if (chat.on && chat.a && chat.b && chat.a._head && chat.b._head) {
-    const mx = (chat.a._head.x + chat.b._head.x) / 2, my = Math.min(chat.a._head.y, chat.b._head.y);
-    if (chat.mode === 'argue') { if (chance(1.6)) spawn('anger', mx + rnd(-8, 4), my + rnd(-2, 4), 0, -4, 0.9); }
-    else if ((rel > 45 || family.partners) && chance(0.9)) spawn('heart', mx + rnd(-4, 2), my + 2, rnd(-2, 2), -8, 1.8);
+  for (const c of convs) {
+    if (!c.a._head || !c.b._head) continue;
+    const mx = (c.a._head.x + c.b._head.x) / 2, my = Math.min(c.a._head.y, c.b._head.y);
+    if (c.mode === 'argue') { if (chance(1.6)) spawn('anger', mx + rnd(-8, 4), my + rnd(-2, 4), 0, -4, 0.9); }
+    else if (residents(c) && (rel > 45 || family.partners) && chance(0.9)) spawn('heart', mx + rnd(-4, 2), my + 2, rnd(-2, 2), -8, 1.8);
+  }
+  if (inUse('record', 'dance') && chance(1.8)) {
+    const p = P3(9.78, 8.44, .8);
+    spawn('note', p.x + rnd(-2, 2), p.y, rnd(-6, 6), -9, 1.8);
   }
   if (inUse('stove', 'cook') && chance(5)) {
     const p = P3(.3, 5.3, .62);
@@ -1996,11 +2283,12 @@ function emitParticles(dt) {
   }
   if (inUse('shower')) {
     for (let k = 0; k < 3; k++) if (chance(14)) {
-      const p = P3(rnd(5.25, 5.75), rnd(.25, .75), .82);
+      const p = P3(rnd(6.25, 6.75), rnd(.25, .75), .82);
       spawn('drop', p.x, p.y, 0, 70, .38);
     }
-    if (chance(3)) { const p = P3(5.5, .5, .9); spawn('steam', p.x + rnd(-5, 5), p.y, rnd(-2, 2), -6, 1.6); }
+    if (chance(3)) { const p = P3(6.5, .5, .9); spawn('steam', p.x + rnd(-5, 5), p.y, rnd(-2, 2), -6, 1.6); }
   }
+  if (inUse('tub') && chance(1.5)) { const p = P3(9.5, 1.1, .5); spawn('steam', p.x + rnd(-4, 4), p.y, rnd(-2, 2), -6, 1.8); }
 }
 function stepParticles(dt) {
   for (let i = parts.length - 1; i >= 0; i--) {
@@ -2046,12 +2334,15 @@ function activeLights(dark) {
     if (h > 17 || h < 1) add(2.6, .4, 16, 62, [1, .8, .5], .75 * dark);
   }
   const screen = (.3 + .7 * dark);
-  if (inUse('sofa', 'tv'))
-    add(6.5, 7.9, 14, 72, [.5, .66, 1], screen * (.8 + .2 * Math.sin(animT * 9) * Math.sin(animT * 3.1)));
+  const flicker = .8 + .2 * Math.sin(animT * 9) * Math.sin(animT * 3.1);
+  if (inUse('sofa', 'tv'))      add(7, 8.9, 14, 72, [.5, .66, 1], screen * flicker);
+  if (inUse('sofa', 'game'))    add(7, 8.9, 14, 72, [.85, .5, .95], screen * flicker);
   if (inUse('fridge'))          add(.95, 4.5, 20, 52, [.85, .95, 1], screen);
   if (inUse('stove', 'cook'))   add(.5, 5.5, 20, 38, [1, .55, .25], screen * .8);
-  if (inUse('desk'))            add(.3, 3.5, 22, 40, [.55, .75, 1], screen * .8);
-  add(.95, 8.5, 26, 46, [.4, .95, .9], (inUse('arcade') ? 1 : .4) * .8 * dark);
+  if (inUse('desk'))            add(.3, 1.5, 22, 40, [.55, .75, 1], screen * .8);
+  add(6.5, 4.95, 26, 46, [.4, .95, .9], (inUse('arcade') ? 1 : .4) * .8 * dark);
+  add(5.5, 4.9, 22, 40, [.45, .85, 1], .55 * dark);                               // the fish tank
+  if (animT < doorOpenUntil)    add(.2, 8.5, 20, 44, [.9, .88, .8], .6 * dark);    // landing light through the door
   return L;
 }
 
@@ -2099,16 +2390,19 @@ function render(dt = 0) {
   for (const tag of walls) {
     const [dir, xs, ys] = tag.split(':');
     const x = +xs, y = +ys;
-    items.push({ depth: x + y - 0.12, draw: () => drawWall(dir, x, y) });
+    // sorted at the wall's middle, so whatever stands just behind it is drawn first and gets hidden
+    // (at -0.12 the desk and wardrobe were drawn over the walls in front of them)
+    items.push({ depth: x + y + 0.45, draw: () => drawWall(dir, x, y) });
   }
   for (const o of OBJECTS) {
     const d = (o.x + o.w / 2) + (o.y + o.h / 2);
     items.push({ depth: d, draw: () => drawObject(o) });
+    if (BACK[o.id]) items.push({ depth: d - 0.6, draw: () => BACK[o.id](o) });
     if (FRONT[o.id]) items.push({ depth: d + 0.7, draw: () => FRONT[o.id](o) });
   }
-  for (const s of people) {
+  for (const s of everyone()) {
     s._head = null;
-    if (s.mobile) items.push({ depth: simDepth(s), draw: () => drawSim(s) });
+    items.push({ depth: simDepth(s), draw: () => drawSim(s) });
   }
   items.sort((a, b) => a.depth - b.depth);
   for (const it of items) it.draw();
@@ -2117,7 +2411,7 @@ function render(dt = 0) {
   emitParticles(dt);
   stepParticles(dt);
   drawParticles();
-  for (const s of people) drawBubble(s);
+  for (const s of everyone()) drawBubble(s);
 
   if (!frameImg) { frameImg = ctx.createImageData(PW, PH); frameView = new Uint32Array(frameImg.data.buffer); }
   frameView.set(buf);
@@ -2129,8 +2423,8 @@ function paintPortrait(i, s) {
   if (typeof ImageData === 'undefined') return;
   const el = document.getElementById('face-' + i);
   if (!el || !el.getContext) return;
-  const face = s.stage === 'baby' ? babyFace(s) : moodFace(s);
-  const key = [face, s.stage, s.colors.hair, s.colors.skin].join('|');
+  const face = moodFace(s);
+  const key = [face, s.colors.hair, s.colors.skin].join('|');
   if (el._key === key) return;
   el._key = key;
   const sp = personSprite(s, 'head', 0, false, face);
@@ -2150,16 +2444,11 @@ function paintPortrait(i, s) {
 
 const cards = document.getElementById('cards');
 
-const STAGE_TAG = { baby:'baby', child:'child' };
-
 function buildCards() {
   cards.innerHTML = people.map((s, i) => {
-    const rows = s.showNeeds.map(k => {
-      const n = NEED(k);
-      return `<div class="need-row"><span class="lbl">${n.label}</span>` +
-             `<span class="bar"><i id="b-${i}-${k}"></i></span></div>`;
-    }).join('');
-    const tag = STAGE_TAG[s.stage] || s.traits.map(t => t.name).join(' · ');
+    const rows = NEEDS.map(n =>
+      `<div class="need-row"><span class="lbl">${n.label}</span>` +
+      `<span class="bar"><i id="b-${i}-${n.k}"></i></span></div>`).join('');
     return `
   <div class="card px">
     <div class="card-body">
@@ -2168,7 +2457,7 @@ function buildCards() {
           <canvas class="face" id="face-${i}" width="16" height="16" aria-hidden="true"></canvas>
           <div class="who">
             <input class="nm" value="${s.name}" maxlength="8" aria-label="Name" data-i="${i}">
-            <span class="sub"><span id="mw-${i}"></span> · <span class="traits">${tag}</span></span>
+            <span class="sub"><span id="mw-${i}"></span> · <span class="traits">${s.traits.map(t => t.name).join(' · ')}</span></span>
           </div>
         </div>
         <div class="act" id="act-${i}"></div>
@@ -2177,8 +2466,7 @@ function buildCards() {
     </div>
   </div>`;
   }).join('');
-  if (cards.style && cards.style.setProperty) cards.style.setProperty('--people', people.length);
-  layout();       // a new card can change how much height the room gets
+  layout();
 
   cards.querySelectorAll('.nm').forEach(inp => {
     inp.addEventListener('input', () => {
@@ -2211,33 +2499,27 @@ const barColor = v => v > 55 ? cssVar('--good') : v > 25 ? cssVar('--mid') : css
 const GOING = {
   sleep:'Heading to bed', eat:'Going to the table', cook:'Heading to the stove',
   snack:'Off to the fridge', toilet:'Hurrying to the bathroom', shower:'Going to shower',
-  wash:'Going to the sink', tv:'Heading for the sofa', online:'Walking to the desk',
-  relax:'Wandering to the sofa', chat:'Looking for company',
-  read:'Going to the bookshelf', paint:'Heading to the easel',
-  guitar:'Going for the guitar', arcade:'Off to the arcade cabinet',
-  stretch:'Heading for the mat', tend:'Going to the baby',
+  bath:'Running a bath', wash:'Going to the sink', tv:'Heading for the sofa', game:'Heading for the sofa',
+  cards:'Getting the cards out', dance:'Heading for the record player', fish:'Going to see the fish',
+  online:'Walking to the desk', relax:'Looking for a seat', chat:'Looking for company',
+  read:'Fetching a book', paint:'Heading to the easel',
+  guitar:'Going for the guitar', arcade:'Off to the arcade cabinet', stretch:'Heading for the mat',
 };
 
+let guestText = '';
 function paintUI() {
   people.forEach((s, i) => {
-    for (const k of s.showNeeds) {
-      const el = document.getElementById(`b-${i}-${k}`);
+    for (const n of NEEDS) {
+      const el = document.getElementById(`b-${i}-${n.k}`);
       if (!el) return;
-      el.style.width = s.needs[k] + '%';
-      el.style.background = barColor(s.needs[k]);
+      el.style.width = s.needs[n.k] + '%';
+      el.style.background = barColor(s.needs[n.k]);
     }
     const word = document.getElementById('mw-'+i);
     const act  = document.getElementById('act-'+i);
     if (!word) return;
     paintPortrait(i, s);
-    if (s.stage === 'baby') {
-      const worst = Math.min(...BABY_NEEDS.map(k => s.needs[k]));
-      word.textContent = worst > 60 ? 'settled' : worst > 30 ? 'fussing' : 'crying';
-      act.textContent = 'In the crib';
-      return;
-    }
-    const m = moodOf(s);
-    word.textContent = m.label;
+    word.textContent = moodOf(s).label;
     act.textContent =
       s.path.length && s.actKey ? (GOING[s.actKey] || 'On the move')
       : s.act ? s.act.verb : 'Deciding what to do';
@@ -2247,12 +2529,12 @@ function paintUI() {
   const rb = document.getElementById('relBar');
   rb.style.width = rel + '%';
   rb.style.background = barColor(rel);
-  const kids = people.length - 2;
   document.getElementById('relVal').textContent =
-    family.partners
-      ? (kids ? `Family of ${people.length}` : 'Partners')
+    family.partners ? 'Partners'
       : rel>82 ? 'Inseparable' : rel>60 ? 'Close' : rel>38 ? 'Friends'
       : rel>18 ? 'Warming up' : 'Strangers';
+  const g = guests.length ? 'Visiting: ' + guests.map(p => `${p.name} (${p.friend.from})`).join(', ') : '';
+  if (g !== guestText) { guestText = g; document.getElementById('guests').textContent = g; }
 }
 
 /* ---------- loop ---------- */
@@ -2261,15 +2543,7 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.1, (now - last)/1000);
   last = now;
-  if (speed > 0) {
-    const dtMin = dt * MIN_PER_SEC * speed;
-    const before = minutes;
-    minutes += dtMin;
-    if (Math.floor(minutes/1440) > Math.floor(before/1440)) { day++; addLog('A new day'); familyTick(); }
-    for (const s of people) (s.mobile ? stepSim : stepBaby)(s, dtMin);
-    stepChat(dtMin);
-    rel = Math.max(0, rel - 0.0016 * dtMin);
-  }
+  if (speed > 0) tick(dt * MIN_PER_SEC * speed);
   render(speed > 0 ? dt : 0);
   paintUI();
   requestAnimationFrame(frame);
@@ -2277,15 +2551,15 @@ function frame(now) {
 
 /* ---------- saving and catching up ---------- */
 
+// Visitors aren't saved: close the tab mid-visit and they've gone home by the time you're back.
 let resetting = false;      // Start over deletes the save and reloads; unload must not write it back
 function save() {
   if (resetting) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      v: 4, at: Date.now(), minutes, day, rel, wallMode, family,
+      v: 5, at: Date.now(), minutes, day, rel, wallMode, family, friends, lastVisit,
       people: people.map(s => ({
-        name: s.name, gender: s.gender, stage: s.stage, bedId: s.bedId,
-        ageDays: s.ageDays, traits: s.traitKeys, needs: s.needs,
+        name: s.name, gender: s.gender, traits: s.traitKeys, needs: s.needs,
         tx: s.tx, ty: s.ty, emotion: s.emotion, colors: s.colors,
       })),
     }));
@@ -2297,17 +2571,7 @@ function catchUp(d) {
   const away = Math.min(MAX_AWAY, Math.max(0, (Date.now() - d.at) / 1000 * AWAY_MIN_PER_SEC));
   if (away < 30) return;
   quiet = true;
-  let left = away;
-  while (left > 0) {
-    const dt = Math.min(4, left);
-    const before = minutes;
-    minutes += dt;
-    if (Math.floor(minutes/1440) > Math.floor(before/1440)) { day++; familyTick(); }
-    for (const s of people) (s.mobile ? stepSim : stepBaby)(s, dt);
-    stepChat(dt);
-    rel = Math.max(0, rel - 0.0016 * dt);
-    left -= dt;
-  }
+  for (let left = away; left > 0; left -= 4) tick(Math.min(4, left));
   quiet = false;
   const hrs = Math.round(away / 60);
   addLog(hrs >= 24
@@ -2347,6 +2611,6 @@ layout();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);   // the web font changes text heights
 if (saved) { addLog('Back again'); catchUp(saved); }
 else addLog('Everyone woke up');
-for (const s of people) if (s.mobile && !s.actKey) think(s);
+for (const s of everyone()) if (!s.actKey && !s.leaving) think(s);
 requestAnimationFrame(frame);
 </script>

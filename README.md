@@ -1,7 +1,7 @@
 # Little Life
 
 A single-file isometric life simulator. Two adults live in a small flat, meet their
-own needs, form a relationship, and may end up with children.
+own needs, form a relationship, and have friends over.
 
 There is no player control beyond speed — it's something you watch, not something
 you play.
@@ -26,8 +26,10 @@ Each Sim scores every possible action every tick, weighing how urgently a need
 to go do something about it. Mood, personality traits, and a novelty penalty (so
 nobody showers four times in a row) all feed into that score. A conversation that
 goes well raises a couple's bond; a bond high enough, sealed with a good
-conversation, makes them a couple — and a settled couple may have a baby, who grows
-into a mobile child a few in-world days later.
+conversation, makes them a couple. In their free time they pick up hobbies — cards,
+video games, the record player, the arcade, the fish tank — and join each other at
+them. Friends and neighbours knock most days, come in through the front door, hang out
+for a couple of hours and head home before bedtime.
 
 Time keeps running while the tab is closed: reopening the page replays the elapsed
 time at full simulation fidelity (just without the on-screen logging) rather than

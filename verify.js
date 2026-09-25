@@ -7,15 +7,15 @@
  * Every real bug in this project has been a layout error that threw no exception —
  * a sealed-off corner, an object approachable only through a wall, a pose keyed off
  * intent instead of arrival. None of those surface in a browser as an error; they
- * just look subtly wrong. So these run the actual simulation rather than linting it.
+ * just look subtly wrong. So these run the actual simulation rather than linting it,
+ * and check the layout through the page's own OBJECTS, walls and pathing code rather
+ * than a copy of them that could drift.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = __dirname;
-const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-
+const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const script = html.slice(
   html.indexOf('<script>') + '<script>'.length,
   html.lastIndexOf('</script>')
@@ -27,80 +27,7 @@ const ok = (label, pass, detail = '') => {
   if (!pass) failures++;
 };
 
-/* ---------- 1. layout, read straight out of the source ---------- */
-
-const COLS = 10, ROWS = 10;
-const objs = [...script
-  .match(/const OBJECTS = \[([\s\S]*?)\n\];/)[1]
-  .matchAll(/id:'(\w+)',\s*x:(\d+), y:(\d+), w:(\d+), h:(\d+)/g)]
-  .map(m => ({ id: m[1], x: +m[2], y: +m[3], w: +m[4], h: +m[5] }));
-
-const blocked = {}, overlaps = [];
-for (const o of objs)
-  for (let i = 0; i < o.w; i++)
-    for (let j = 0; j < o.h; j++) {
-      const k = `${o.x + i},${o.y + j}`;
-      if (blocked[k]) overlaps.push(`${k} (${blocked[k]} / ${o.id})`);
-      blocked[k] = o.id;
-    }
-
-const walls = new Set();
-for (let x = 0; x < COLS; x++) walls.add(`N:${x}:0`);
-for (let y = 0; y < ROWS; y++) walls.add(`W:0:${y}`);
-for (let x = 0; x < COLS; x++) if (x !== 2 && x !== 7) walls.add(`N:${x}:4`);
-for (let y = 0; y < 4; y++) if (y !== 2) walls.add(`W:5:${y}`);
-
-const free = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS && !blocked[`${x},${y}`];
-const cross = (fx, fy, tx, ty) => {
-  if (ty === fy + 1) return !walls.has(`N:${tx}:${ty}`);
-  if (ty === fy - 1) return !walls.has(`N:${fx}:${fy}`);
-  if (tx === fx + 1) return !walls.has(`W:${tx}:${ty}`);
-  if (tx === fx - 1) return !walls.has(`W:${fx}:${fy}`);
-  return true;
-};
-
-const seen = new Set(['5,7']);
-const queue = [[5, 7]];
-while (queue.length) {
-  const [x, y] = queue.shift();
-  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-    const nx = x + dx, ny = y + dy, k = `${nx},${ny}`;
-    if (free(nx, ny) && !seen.has(k) && cross(x, y, nx, ny)) { seen.add(k); queue.push([nx, ny]); }
-  }
-}
-
-const walkable = COLS * ROWS - Object.keys(blocked).length;
-const stranded = [];
-for (let x = 0; x < COLS; x++)
-  for (let y = 0; y < ROWS; y++)
-    if (free(x, y) && !seen.has(`${x},${y}`)) stranded.push(`${x},${y}`);
-
-const DOORS = ['2,3', '2,4', '7,3', '7,4', '4,2', '5,2'];
-const ACTIVITY_OBJECTS = ['bed0','bed1','kidbed0','kidbed1','crib','desk','shower','sink',
-  'toilet','fridge','stove','table','guitar','easel','shelf','arcade','mat','sofa'];
-
-const unreachable = ACTIVITY_OBJECTS.filter(id => {
-  const o = objs.find(v => v.id === id);
-  if (!o) return true;
-  for (let i = 0; i < o.w; i++)
-    for (let j = 0; j < o.h; j++) {
-      const ox = o.x + i, oy = o.y + j;
-      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const x = ox + dx, y = oy + dy;
-        if (free(x, y) && cross(x, y, ox, oy) && seen.has(`${x},${y}`)) return false;
-      }
-    }
-  return true;
-});
-
-console.log('\nLayout');
-ok('no overlapping footprints', overlaps.length === 0, overlaps.join(', '));
-ok('doorway tiles clear', DOORS.every(d => free(...d.split(',').map(Number))));
-ok('every walkable tile reachable', stranded.length === 0,
-   stranded.length ? `stranded: ${stranded.join(' ')}` : `${seen.size}/${walkable}`);
-ok('every activity object approachable', unreachable.length === 0, unreachable.join(', '));
-
-/* ---------- 2. run the real simulation against a stubbed DOM ---------- */
+/* ---------- a stubbed DOM, enough for the page to boot ---------- */
 
 const noop = () => {};
 const gradient = { addColorStop: noop };
@@ -129,56 +56,105 @@ global.performance = { now: () => 0 };
 global.requestAnimationFrame = noop;      // never start the render loop
 global.setInterval = noop;                // never start the autosave timer
 global.location = { reload: noop };
-global.Image = class { constructor() { this.complete = false; this.naturalWidth = 0; } set src(_) {} };
 
 const DAYS = 22;
 const harness = script.replace(/requestAnimationFrame\(frame\);\s*$/, '') + `
-;(function () {
-  let idleTicks = 0, personTicks = 0, tendTicks = 0, peakBond = 0;
-  const steps = ${DAYS} * 1440 * 2;                 // half an in-world minute per step
-  for (let n = 0; n < steps; n++) {
-    const dt = 0.5, before = minutes;
-    minutes += dt;
-    if (Math.floor(minutes / 1440) > Math.floor(before / 1440)) { day++; familyTick(); }
-    for (const p of people) (p.mobile ? stepSim : stepBaby)(p, dt);
-    stepChat(dt);
-    rel = Math.max(0, rel - 0.0016 * dt);
-    peakBond = Math.max(peakBond, rel);
-    for (const p of people) {
-      if (p.actKey === 'tend') tendTicks++;
-      if (!p.mobile) continue;
-      personTicks++;
-      if (!p.actKey) { p._streak = (p._streak || 0) + 1; p._max = Math.max(p._max || 0, p._streak); idleTicks++; }
-      else p._streak = 0;
+;({
+  layout() {
+    const key = (x, y) => x + ',' + y, overlaps = [], owner = {};
+    for (const o of OBJECTS)
+      for (let i = 0; i < o.w; i++) for (let j = 0; j < o.h; j++) {
+        const k = key(o.x + i, o.y + j);
+        if (owner[k]) overlaps.push(k + ' (' + owner[k] + ' / ' + o.id + ')');
+        owner[k] = o.id;
+      }
+    const seen = new Set([key(...DOOR)]), q = [DOOR.slice()];
+    while (q.length) {
+      const [x, y] = q.shift();
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (free(nx, ny) && !seen.has(key(nx, ny)) && canCross(x, y, nx, ny)) { seen.add(key(nx, ny)); q.push([nx, ny]); }
+      }
     }
-    paintUI();
-  }
-  return {
-    days: day,
-    household: people.map(p => \`\${p.name} (\${p.gender}, \${p.stage})\`),
-    partners: family.partners,
-    peakBond,
-    born: family.born,
-    tendTicks,
-    longestIdleStreak: Math.max(0, ...people.map(p => p._max || 0)),
-    starving: people.filter(p => Object.values(p.needs).some(v => v < 3)).length,
-  };
-})();
-`;
+    const stranded = [];
+    for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++)
+      if (free(x, y) && !seen.has(key(x, y))) stranded.push(key(x, y));
+    const used = new Set(SEATS.concat(people.map(p => p.bedId)));
+    for (const k in ACTS) if (ACTS[k].obj && k !== 'relax' && k !== 'sleep') used.add(ACTS[k].obj(people[0]));
+    const unreachable = [...used].filter(id => !approachTiles(byId(id)).some(t => seen.has(key(...t))));
+    const badUse = OBJECTS.filter(o => o.use && approachTiles(o).length < o.use.length).map(o => o.id);
+    return { overlaps, stranded, walkable: seen.size, unreachable, badUse,
+             doorsClear: DOORWAYS.every(d => free(...d.split(',').map(Number))) };
+  },
+
+  simulate(days) {
+    let peakBond = 0, coupleDay = 0, visits = 0, overnight = 0, maxGuests = 0, together = 0, hadGuests = false;
+    const acts = { adult: {}, guest: {} }, streak = new Map(), longest = new Map();
+    const steps = days * 1440 * 2;                  // half an in-world minute per step
+    for (let n = 0; n < steps; n++) {
+      tick(0.5);
+      peakBond = Math.max(peakBond, rel);
+      if (family.partners && !coupleDay) coupleDay = day;
+      if (guests.length && !hadGuests) visits++;
+      hadGuests = guests.length > 0;
+      maxGuests = Math.max(maxGuests, guests.length);
+      if (guests.length && hour() > 3 && hour() < 3.01) overnight++;
+      for (const p of everyone()) {
+        if (p.leaving) continue;
+        if (p.actKey && !p.path.length) acts[p.stage][p.actKey] = (acts[p.stage][p.actKey] || 0) + 1;
+        if (p.act && p.act.group && !p.path.length && doingWith(p.actKey, p).length) together++;
+        const s = p.actKey ? 0 : (streak.get(p) || 0) + 1;
+        streak.set(p, s);
+        longest.set(p.name, Math.max(longest.get(p.name) || 0, s));
+      }
+      paintUI();
+    }
+    return {
+      household: people.map(p => p.name + ' (' + p.gender + ')'),
+      friends: friends.map(f => f.name + ' ' + f.from),
+      partners: family.partners, coupleDay, peakBond, visits, overnight, maxGuests, together, acts,
+      longestIdleStreak: Math.max(0, ...longest.values()),
+      starving: people.filter(p => Object.values(p.needs).some(v => v < 3)).length,
+    };
+  },
+})`;
+
+let api;
+try {
+  api = eval(harness);
+} catch (err) {
+  console.log(' FAIL  page boots headlessly  — ' + err.message);
+  process.exit(1);
+}
+
+console.log('\nLayout');
+const L = api.layout();
+ok('no overlapping footprints', L.overlaps.length === 0, L.overlaps.join(', '));
+ok('doorway tiles clear', L.doorsClear);
+ok('every walkable tile reachable from the front door', L.stranded.length === 0,
+   L.stranded.length ? 'stranded: ' + L.stranded.join(' ') : L.walkable + ' tiles');
+ok('every activity object approachable', L.unreachable.length === 0, L.unreachable.join(', '));
+ok('every "use" tile is walkable', L.badUse.length === 0, L.badUse.join(', '));
 
 console.log(`\nSimulation (${DAYS} in-world days)`);
 let r;
 try {
-  r = eval(harness);
+  r = api.simulate(DAYS);
 } catch (err) {
-  ok('runs without throwing', false, err.message);
+  ok('runs without throwing', false, err.stack);
   process.exit(1);
 }
 ok('runs without throwing', true);
 console.log(`        household: ${r.household.join(', ')}`);
-console.log(`        partners: ${r.partners} | peak bond: ${r.peakBond.toFixed(1)} | children born: ${r.born}`);
+console.log(`        friends: ${r.friends.join(', ')}`);
+console.log(`        partners: ${r.partners ? 'from day ' + r.coupleDay : 'no'} | peak bond: ${r.peakBond.toFixed(1)} | visits: ${r.visits} (up to ${r.maxGuests} at once)`);
+const hours = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${(v / 120).toFixed(0)}h`).join(', ');
+console.log('        residents: ' + hours(r.acts.adult));
+console.log('        visitors:  ' + hours(r.acts.guest));
 ok('relationship can progress', r.peakBond > 84);
-ok('baby care happens when there are babies', r.born === 0 || r.tendTicks > 0, `${r.tendTicks} ticks`);
+ok('friends come to visit', r.visits >= DAYS / 3, `${r.visits} visits`);
+ok('visitors go home at night', r.overnight === 0, `${r.overnight} nights with someone still here at 3am`);
+ok('people do things together', r.together > 0, `${(r.together / 120).toFixed(0)} person-hours of group activities`);
 ok('nobody gets stuck without an action', r.longestIdleStreak <= 4, `longest streak ${r.longestIdleStreak} ticks`);
 ok('no need bottoms out', r.starving === 0);
 
